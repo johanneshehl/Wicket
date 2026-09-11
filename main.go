@@ -29,6 +29,8 @@ type Config struct {
 	CaddyAdmin   string
 	CaddyDir     string
 	Caddyfile    string
+	MetricsToken string // bearer token for /metrics; empty = only reachable locally
+	DockerHost   string // unix:///var/run/docker.sock, tcp://host:2375 or empty to disable
 }
 
 func env(key, fallback string) string {
@@ -49,6 +51,8 @@ func loadConfig() Config {
 		CaddyAdmin:   env("WICKET_CADDY_ADMIN", "http://127.0.0.1:2019"),
 		CaddyDir:     env("WICKET_CADDY_DIR", "/etc/caddy/wicket"),
 		Caddyfile:    env("WICKET_CADDYFILE", "/etc/caddy/Caddyfile"),
+		MetricsToken: env("WICKET_METRICS_TOKEN", ""),
+		DockerHost:   env("WICKET_DOCKER_HOST", "unix:///var/run/docker.sock"),
 	}
 }
 
@@ -67,7 +71,7 @@ func main() {
 		log.Fatalf("init: %v", err)
 	}
 
-	srv := &http.Server{Addr: cfg.Listen, Handler: app.Routes(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: cfg.Listen, Handler: app.withExtras(app.Routes()), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		log.Printf("wicket %s listening on %s", version, cfg.Listen)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
