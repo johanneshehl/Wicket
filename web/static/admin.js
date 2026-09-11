@@ -302,7 +302,10 @@ async function renderSites() {
 function sitePreview(d) {
   const dom = esc(d.domain || 'app.example.com');
   if (d.managed) return `<b>${dom}</b> {\n  <i>import</i> wicket\n  <i>reverse_proxy</i> ${esc(d.target || '127.0.0.1:8080')}\n}`;
-  return `# In deinem bestehenden Caddy-Block ergänzen:\n<b>${dom}</b> {\n  <i>import</i> wicket\n  …\n}`;
+  const note = state.caddy && state.caddy.caddyfileWritable
+    ? '# Wicket ergänzt das in deinem Caddyfile automatisch:'
+    : '# In deinem bestehenden Caddy-Block ergänzen:';
+  return `${note}\n<b>${dom}</b> {\n  <i>import</i> wicket\n  …\n}`;
 }
 
 async function siteDialog(site) {
@@ -322,6 +325,7 @@ async function siteDialog(site) {
       <div class="fg"><div class="lbl">Domain</div>
         <input class="input" name="domain" value="${esc(d.domain)}" placeholder="app.example.com" autocomplete="off" spellcheck="false">
         <div class="dns" data-dns></div></div>
+      <div class="info" data-caddy-info hidden></div>
       <div class="fg" data-target><div class="lbl">Ziel</div>
         <input class="input mono" name="target" value="${esc(d.target)}" placeholder="127.0.0.1:8080" autocomplete="off" spellcheck="false">
         <div class="dim small">Adresse, unter der der Dienst auf dem Server erreichbar ist, z. B. 127.0.0.1:5050 oder http://container:80.</div></div>
@@ -342,7 +346,7 @@ async function siteDialog(site) {
         <div class="dim small">z. B. /healthz oder /api/public/* – ein * ist nur am Ende erlaubt.</div></div>
       <div class="fg"><div class="lbl">Aktiv</div>
         <div class="input toggle-field">Seite ist geschützt<button type="button" class="switch ${d.enabled ? 'on' : ''}" data-sw="enabled" role="switch" aria-checked="${d.enabled}"></button></div></div>
-      ${state.caddy.enabled ? `<label class="check"><input type="checkbox" name="managed" ${d.managed ? 'checked' : ''}><span class="box"></span>Caddy-Eintrag von Wicket anlegen lassen</label>` : ''}
+      ${state.caddy.enabled ? `<label class="check" data-managed-row><input type="checkbox" name="managed" ${d.managed ? 'checked' : ''}><span class="box"></span>Caddy-Eintrag von Wicket anlegen lassen</label>` : ''}
       <div class="code-box"><div class="code-head"><span data-code-title></span><button type="button" class="link right" data-copy-code>Kopieren</button></div><pre data-preview></pre></div>`,
     async onSubmit() {
       d.users = $$('[data-userlist] input:checked', form).map((i) => Number(i.value));
@@ -355,10 +359,19 @@ async function siteDialog(site) {
   });
 
   const update = () => {
+    const existing = Boolean(d.caddyBlock);
+    const auto = state.caddy.caddyfileWritable;
     $('[data-target]', form).hidden = !d.managed;
     $('[data-userlist]', form).hidden = d.access !== 'users';
+    const row = $('[data-managed-row]', form);
+    if (row) { row.hidden = existing; $('input', row).checked = d.managed; }
+    const info = $('[data-caddy-info]', form);
+    info.hidden = !existing;
+    info.innerHTML = auto
+      ? 'Für diese Domain gibt es schon einen Eintrag in deinem Caddyfile. Wicket ergänzt dort automatisch <code>import wicket</code> und schaltet ein vorhandenes Browser-Login (basic_auth) ab.'
+      : 'Für diese Domain gibt es schon einen Eintrag in deinem Caddyfile. Wicket darf das Caddyfile nicht bearbeiten – ergänze dort <code>import wicket</code>.';
     $('[data-preview]', form).innerHTML = sitePreview(d);
-    $('[data-code-title]', form).textContent = d.managed ? 'Caddy-Eintrag, den Wicket anlegt' : 'So bindest du Wicket selbst ein';
+    $('[data-code-title]', form).textContent = d.managed ? 'Caddy-Eintrag, den Wicket anlegt' : (auto ? 'So bindet Wicket die Seite ein' : 'So bindest du Wicket selbst ein');
   };
   const drawChips = () => {
     const box = $('[data-chips]', form);
@@ -377,6 +390,11 @@ async function siteDialog(site) {
       el.innerHTML = '<span class="dim">DNS wird geprüft…</span>';
       try {
         const r = await api('GET', '/api/dns?domain=' + encodeURIComponent(dom));
+        if (d.domain.trim() !== dom) return;
+        d.caddyBlock = Boolean(r.caddyBlock);
+        if (d.caddyBlock) d.managed = false;
+        else if (!edit) d.managed = state.caddy.enabled;
+        update();
         el.innerHTML = r.ok ? `${I.ok}<span class="ok-t">DNS zeigt auf diesen Server</span>`
           : r.reason === 'missing' ? '<span class="warn-t">Kein DNS-Eintrag gefunden – ohne ihn gibt es kein Zertifikat.</span>'
           : r.reason === 'other' ? `<span class="warn-t">DNS zeigt auf ${esc(r.ips.join(', '))}, nicht auf diesen Server.</span>` : '';
@@ -671,6 +689,7 @@ async function renderSettings(sub) {
             <span class="${c.enabled && c.writable ? 'ok-t' : 'warn-t'}">${c.enabled ? (c.writable ? '✓ Ordner beschreibbar' : '✗ Ordner nicht beschreibbar') : '✗ Ordner nicht eingebunden'}</span>
             <span class="${c.reachable ? 'ok-t' : 'warn-t'}">${c.reachable ? '✓ Admin-API erreichbar' : '✗ Admin-API nicht erreichbar'}</span>
             <span class="${c.imported ? 'ok-t' : 'warn-t'}">${c.imported ? '✓ im Caddyfile eingebunden' : '✗ Caddyfile bindet den Ordner nicht ein'}</span>
+            <span class="${c.caddyfileWritable ? 'ok-t' : 'muted'}">${c.caddyfileWritable ? '✓ bestehende Einträge werden automatisch geschützt' : '– Caddyfile schreibgeschützt: import wicket von Hand'}</span>
           </div>
           ${c.imported ? '' : `<div class="info" style="margin-top:16px">Füge diese Zeile in dein Caddyfile ein und lade Caddy neu:<br><code>${esc(c.importLine)}</code></div>`}
           <div class="info" style="margin-top:16px">Eigene Caddy-Blöcke schützt du mit einer Zeile: <code>import wicket</code> – Wicket prüft dann jede Anfrage über <code>${esc(d.authAddr)}</code>.</div>

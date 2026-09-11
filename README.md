@@ -72,9 +72,19 @@ sudo mkdir -p /etc/caddy/wicket
 sudo chown 65532:65532 /opt/wicket/data /etc/caddy/wicket
 ```
 
+To let Wicket protect site blocks that already exist in your Caddyfile, also allow it to edit the Caddyfile:
+
+```
+sudo chgrp 65532 /etc/caddy/Caddyfile
+sudo chmod 664 /etc/caddy/Caddyfile
+```
+
+Without this step everything still works, but you add `import wicket` to existing blocks yourself.
+
 ### 2. Include Wicket in your Caddyfile
 
-Add this line to the top of your Caddyfile, before any site block (after the global options block, if you
+If the Caddyfile is writable for Wicket (previous step), Wicket adds this line itself and skips to step 3.
+Otherwise add it to the top of your Caddyfile, before any site block (after the global options block, if you
 have one):
 
 ```
@@ -105,8 +115,7 @@ services:
       WICKET_ADMIN_HOST: wicket.example.com
     volumes:
       - ./data:/data
-      - /etc/caddy:/etc/caddy:ro
-      - /etc/caddy/wicket:/etc/caddy/wicket
+      - /etc/caddy:/etc/caddy
 ```
 
 ```
@@ -161,17 +170,27 @@ Wicket restores the previous state and shows the error.
 
 ### Existing Caddy blocks
 
-If a site already has its own block in your Caddyfile, create it in Wicket without the managed option and add one
-line to your block:
+If a domain already has its own block in your Caddyfile, Wicket detects it while you type the domain and protects
+that block instead of creating a second one. With a writable Caddyfile this is automatic:
+
+- Wicket adds `import wicket # added by wicket` to the block.
+- An existing `basic_auth` in the block is commented out (`# disabled by wicket: ...`), since Wicket replaces
+  the browser's login popup.
+- When you delete the site in Wicket, both changes are reverted.
+- Before the first change, the original Caddyfile is saved as `Caddyfile.before-wicket` in the data directory.
 
 ```
 app.example.com {
-	import wicket
+	import wicket # added by wicket
+	# disabled by wicket: basic_auth {
+	# disabled by wicket: 	admin $2a$14$...
+	# disabled by wicket: }
 	reverse_proxy 127.0.0.1:8080
 }
 ```
 
-This also works for wildcard domains such as `*.apps.example.com`.
+If the Caddyfile is read-only for Wicket, add `import wicket` to the block yourself. This also works for wildcard
+domains such as `*.apps.example.com`.
 
 ### Pausing protection
 
@@ -238,7 +257,7 @@ later in the admin interface; those values are stored in the database and take p
 | `WICKET_AUTH_ADDR` | `127.0.0.1:9091` | Address Caddy uses to reach Wicket in `forward_auth`. |
 | `WICKET_CADDY_ADMIN` | `http://127.0.0.1:2019` | Caddy admin API, used to reload the configuration. |
 | `WICKET_CADDY_DIR` | `/etc/caddy/wicket` | Directory for the managed Caddy snippets. If it does not exist, Caddy integration is off. |
-| `WICKET_CADDYFILE` | `/etc/caddy/Caddyfile` | Caddyfile that is loaded on reload. |
+| `WICKET_CADDYFILE` | `/etc/caddy/Caddyfile` | Caddyfile that is loaded on reload. If it is writable, Wicket keeps its import at the top and protects existing site blocks. |
 
 Defaults in the admin interface:
 

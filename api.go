@@ -198,6 +198,10 @@ func (a *App) validateSite(in *Site) error {
 	if in.Domain == s.LoginHost || in.Domain == s.AdminHost {
 		return userErr("Die Login- und Admin-Adresse von Wicket kann keine geschützte Seite sein.")
 	}
+	// the Caddyfile already has a block for this domain: protect that one instead of adding a second
+	if in.Managed && a.caddyfileHasSite(in.Domain) {
+		in.Managed = false
+	}
 	if in.Managed {
 		if strings.HasPrefix(in.Domain, "*.") {
 			return userErr("Wildcard-Domains gehen nur ohne Caddy-Verwaltung (Zertifikate brauchen eine DNS-Challenge).")
@@ -332,16 +336,18 @@ func (a *App) apiSiteDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiDNS(w http.ResponseWriter, r *http.Request) {
-	domain := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("domain"))), "*.")
+	raw := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("domain")))
+	domain := strings.TrimPrefix(raw, "*.")
 	if !hostRE.MatchString(domain) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "invalid"})
 		return
 	}
+	caddyBlock := a.caddyfileHasSite(raw)
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 	defer cancel()
 	ips, err := net.DefaultResolver.LookupHost(ctx, domain)
 	if err != nil || len(ips) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "missing"})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "missing", "caddyBlock": caddyBlock})
 		return
 	}
 	s := a.settings()
@@ -365,7 +371,7 @@ func (a *App) apiDNS(w http.ResponseWriter, r *http.Request) {
 	if !match {
 		reason = "other"
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": match, "reason": reason, "ips": ips, "serverIps": server})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": match, "reason": reason, "ips": ips, "serverIps": server, "caddyBlock": caddyBlock})
 }
 
 // ---------------------------------------------------------------- users
