@@ -1,0 +1,8 @@
+design
+data
+docs
+scripts
+.github
+.git
+docker-compose.yml
+*.md

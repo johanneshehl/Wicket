@@ -1,0 +1,19 @@
+services:
+  wicket:
+    image: ghcr.io/johanneshehl/wicket:latest
+    container_name: wicket
+    restart: unless-stopped
+    # Host network: Caddy reaches Wicket on 127.0.0.1:9091,
+    # Wicket reaches the Caddy admin API on 127.0.0.1:2019.
+    network_mode: host
+    environment:
+      WICKET_LISTEN: 127.0.0.1:9091
+      WICKET_COOKIE_DOMAIN: example.com
+      WICKET_LOGIN_HOST: login.example.com
+      WICKET_ADMIN_HOST: wicket.example.com
+    volumes:
+      - ./data:/data
+      # Caddy integration: read the Caddyfile, write the managed snippets.
+      # Remove both lines if you want to write your Caddy blocks yourself.
+      - /etc/caddy:/etc/caddy:ro
+      - /etc/caddy/wicket:/etc/caddy/wicket

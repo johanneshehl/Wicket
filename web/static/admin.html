@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Wicket</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/wicket.css">
+</head>
+<body>
+<header class="app-head">
+  <div class="app-bar">
+    <a class="brand" href="#/">
+      <svg class="logo" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" stroke-width="1.6"/><path d="M9 21v-7a3 3 0 016 0v7" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span>wicket</span>
+    </a>
+    <span class="slash">/</span>
+    <span class="muted" id="domainLabel"></span>
+    <div class="right app-user">
+      <button class="avatar" id="avatarBtn" type="button" aria-haspopup="true" aria-label="Konto"></button>
+      <div class="menu" id="userMenu" hidden>
+        <div class="menu-head" id="menuHead"></div>
+        <a href="#/settings/konto">Mein Konto</a>
+        <a href="/logout">Abmelden</a>
+      </div>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <a href="#/" data-tab="">Übersicht</a>
+    <a href="#/sites" data-tab="sites">Seiten</a>
+    <a href="#/users" data-tab="users">Benutzer</a>
+    <a href="#/log" data-tab="log">Protokoll</a>
+    <a href="#/settings" data-tab="settings">Einstellungen</a>
+  </nav>
+</header>
+<main id="view"></main>
+<div id="modal"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/static/admin.js"></script>
+</body>
+</html>

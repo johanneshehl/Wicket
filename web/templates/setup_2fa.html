@@ -1,0 +1,56 @@
+{{template "head" .}}
+<body class="auth">
+<main class="center">
+  <div class="stack xwide">
+  {{if eq .Step 1}}
+    <form class="card" method="post" action="/setup-2fa" data-once>
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="rd" value="{{.RD}}">
+      <div class="card-head">
+        <h2>Zwei-Faktor einrichten</h2>
+        <p class="muted">{{if .Forced}}Für dein Konto ist Zwei-Faktor Pflicht. {{end}}Scanne den Code mit einer Authenticator-App, z. B. Aegis, 2FAS oder Google Authenticator.</p>
+      </div>
+      <div class="card-body">
+        {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
+        <div class="totp">
+          <div class="qr"><img src="{{.QR}}" alt="QR-Code für die Authenticator-App" width="180" height="180"></div>
+          <div class="totp-side">
+            <div class="label">Oder Schlüssel manuell eingeben
+              <div class="secret"><span>{{.SecretGrouped}}</span><button type="button" class="mini" data-copy="{{.Secret}}">Kopieren</button></div>
+            </div>
+            <div class="label">Code aus der App zum Bestätigen
+              {{template "otp"}}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card-foot">
+        <span class="dim small">Angemeldet als {{.Username}}</span>
+        {{if not .Forced}}<a class="btn-ghost right" href="{{.Continue}}">Später</a>{{end}}
+        <button class="btn-light {{if .Forced}}right{{end}}" type="submit">Aktivieren</button>
+      </div>
+    </form>
+  {{else}}
+    <div class="card">
+      <div class="card-head">
+        <h2>Zwei-Faktor ist aktiv</h2>
+        <p class="muted">Speichere diese Wiederherstellungscodes, z. B. in Vaultwarden – falls du dein Handy verlierst. Jeder Code funktioniert genau einmal und wird nur jetzt angezeigt.</p>
+      </div>
+      <div class="card-body">
+        <div class="codes">{{range .Codes}}<div>{{.}}</div>{{end}}</div>
+        <div class="row gap8">
+          <button type="button" class="btn-ghost sm" data-copy="{{.CodesText}}">Alle kopieren</button>
+          <a class="btn-ghost sm" download="wicket-wiederherstellungscodes.txt" href="{{.CodesURL}}">Herunterladen</a>
+        </div>
+      </div>
+      <div class="card-foot">
+        <label class="check"><input type="checkbox" data-gate="continue"><span class="box"></span>Codes gespeichert</label>
+        <a class="btn-light right is-disabled" id="continue" href="{{.Continue}}">Weiter</a>
+      </div>
+    </div>
+  {{end}}
+  </div>
+</main>
+<script src="/static/auth.js"></script>
+</body>
+</html>

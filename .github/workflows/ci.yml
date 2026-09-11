@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -o wicket .
+
+      - name: End-to-end test
+        run: |
+          mkdir -p /tmp/wicket-data
+          WICKET_LISTEN=127.0.0.1:9092 WICKET_AUTH_ADDR=127.0.0.1:9092 \
+          WICKET_DATA=/tmp/wicket-data WICKET_CADDY_DIR=/nonexistent \
+            ./wicket > /tmp/wicket.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:9092/healthz && break; sleep 1; done
+          CODE=$(grep -o 'Setup-Code: [a-z0-9-]*' /tmp/wicket.log | awk '{print $2}')
+          python3 scripts/e2e_test.py 9092 "$CODE"
+
+      - name: Server log
+        if: failure()
+        run: cat /tmp/wicket.log

@@ -1,0 +1,13 @@
+# runtime data
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# local design working files (contain server-specific details)
+/design/
+
+# build output
+/wicket
+/wicket.exe
+/dist/
