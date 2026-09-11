@@ -61,7 +61,7 @@ func (a *App) caddyfileWritable() bool {
 func (a *App) caddyFiles(sites []*Site) map[string]string {
 	s := a.settings()
 	files := map[string]string{
-		"00-wicket.caddy": managedHeader + fmt.Sprintf("(wicket) {\n\tforward_auth %s {\n\t\turi /verify\n\t\tcopy_headers Remote-User Remote-Role\n\t}\n}\n", a.cfg.AuthAddr),
+		"00-wicket.caddy": managedHeader + fmt.Sprintf("(wicket) {\n\tforward_auth %s {\n\t\turi /verify\n\t\tcopy_headers Remote-User Remote-Role Remote-Email Remote-Groups\n\t}\n}\n", a.cfg.AuthAddr),
 	}
 	var hosts []string
 	for _, h := range []string{s.LoginHost, s.AdminHost} {

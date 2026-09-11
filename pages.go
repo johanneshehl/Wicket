@@ -141,7 +141,7 @@ func (a *App) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, user := a.activeSession(r)
-	if sess == nil || user.Role != "admin" {
+	if sess == nil || !canAdmin(user) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
@@ -158,9 +158,10 @@ func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	if code := r.URL.Query().Get("e"); code != "" {
 		p.Error = a.oauthErrorText(p, code, r.URL.Query().Get("p"))
 	}
-	if sess, user := a.activeSession(r); sess != nil {
+	// reauth=1: a site with a shorter session limit wants a fresh sign-in, so show the form anyway
+	if sess, user := a.activeSession(r); sess != nil && r.URL.Query().Get("reauth") == "" {
 		switch {
-		case p.Admin && user.Role == "admin":
+		case p.Admin && canAdmin(user):
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		case p.Admin:
@@ -243,6 +244,7 @@ func (a *App) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		checkPassword(dummyHash, password)
 	}
 	if !ok {
+		countMetric("wicket_logins_total", "failure")
 		kind := "login_fail_password"
 		if u == nil {
 			kind = "login_fail_user"
@@ -256,7 +258,8 @@ func (a *App) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		a.renderLogin(w, http.StatusUnauthorized, p)
 		return
 	}
-	if p.Admin && u.Role != "admin" {
+	countMetric("wicket_logins_total", "success")
+	if p.Admin && !canAdmin(u) {
 		a.event(r, "denied", u.Username, hostOnly(r.Host), "not-admin")
 		p.Error = p.T("err.noAdminAccess")
 		a.renderLogin(w, http.StatusForbidden, p)

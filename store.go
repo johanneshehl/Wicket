@@ -91,7 +91,11 @@ func OpenStore(dir string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	st := &Store{db: db}
+	if err := st.migrate(); err != nil {
+		return nil, err
+	}
+	return st, nil
 }
 
 func now() int64 { return time.Now().Unix() }
@@ -389,30 +393,61 @@ func (st *Store) CleanupSessions() error {
 // ---------------------------------------------------------------- sites
 
 type Site struct {
-	ID         int64    `json:"id"`
-	Domain     string   `json:"domain"`
-	Target     string   `json:"target"`
-	Access     string   `json:"access"` // all | admins | users
-	Require2FA bool     `json:"require2fa"`
-	Bypass     []string `json:"bypass"`
-	Enabled    bool     `json:"enabled"`
-	Managed    bool     `json:"managed"` // Wicket writes the Caddy site block
-	Users      []int64  `json:"users"`
-	CreatedAt  int64    `json:"createdAt"`
+	ID              int64    `json:"id"`
+	Domain          string   `json:"domain"`
+	Target          string   `json:"target"`
+	Access          string   `json:"access"` // all | admins | users (selected users and groups)
+	Require2FA      bool     `json:"require2fa"`
+	Bypass          []string `json:"bypass"`
+	Enabled         bool     `json:"enabled"`
+	Managed         bool     `json:"managed"` // Wicket writes the Caddy site block
+	Users           []int64  `json:"users"`
+	Groups          []int64  `json:"groups"`
+	AllowIPs        []string `json:"allowIps"`        // networks that pass without login
+	DenyIPs         []string `json:"denyIps"`         // networks that are always blocked
+	MaxSessionHours int      `json:"maxSessionHours"` // 0 = no extra limit; older sign-ins must sign in again
+	CreatedAt       int64    `json:"createdAt"`
 }
 
-const siteCols = `id, domain, target, access, require_2fa, bypass, enabled, managed, created_at`
+const siteCols = `id, domain, target, access, require_2fa, bypass, enabled, managed, created_at, allow_ips, deny_ips, max_session_hours`
 
 func scanSite(row scanner) (*Site, error) {
 	s := &Site{}
-	var bypass string
-	err := row.Scan(&s.ID, &s.Domain, &s.Target, &s.Access, &s.Require2FA, &bypass, &s.Enabled, &s.Managed, &s.CreatedAt)
+	var bypass, allow, deny string
+	err := row.Scan(&s.ID, &s.Domain, &s.Target, &s.Access, &s.Require2FA, &bypass, &s.Enabled, &s.Managed, &s.CreatedAt,
+		&allow, &deny, &s.MaxSessionHours)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	s.Bypass = splitLines(bypass)
+	s.AllowIPs = splitLines(allow)
+	s.DenyIPs = splitLines(deny)
 	s.Users = []int64{}
+	s.Groups = []int64{}
 	return s, err
+}
+
+// migrations add columns introduced after the first release; existing databases are upgraded on start.
+var migrations = []struct{ table, column, ddl string }{
+	{"sites", "allow_ips", `alter table sites add column allow_ips text not null default ''`},
+	{"sites", "deny_ips", `alter table sites add column deny_ips text not null default ''`},
+	{"sites", "max_session_hours", `alter table sites add column max_session_hours integer not null default 0`},
+}
+
+func (st *Store) migrate() error {
+	for _, m := range migrations {
+		var n int
+		if err := st.db.QueryRow(`select count(*) from pragma_table_info(?) where name = ?`, m.table, m.column).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := st.db.Exec(m.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	st.ensureGroups()
+	return nil
 }
 
 func splitLines(s string) []string {
@@ -456,7 +491,19 @@ func (st *Store) ListSites() ([]*Site, error) {
 			s.Users = append(s.Users, uid)
 		}
 	}
-	return out, urows.Err()
+	if err := urows.Err(); err != nil {
+		return nil, err
+	}
+	groups, err := st.SiteGroups()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range out {
+		if g := groups[s.ID]; g != nil {
+			s.Groups = g
+		}
+	}
+	return out, nil
 }
 
 func (st *Store) SiteByID(id int64) (*Site, error) {
@@ -498,8 +545,10 @@ func (st *Store) CreateSite(s *Site) (int64, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`insert into sites (domain, target, access, require_2fa, bypass, enabled, managed, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.Domain, s.Target, s.Access, s.Require2FA, strings.Join(s.Bypass, "\n"), s.Enabled, s.Managed, now())
+	res, err := tx.Exec(`insert into sites (domain, target, access, require_2fa, bypass, enabled, managed, created_at, allow_ips, deny_ips, max_session_hours)
+		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.Domain, s.Target, s.Access, s.Require2FA, strings.Join(s.Bypass, "\n"), s.Enabled, s.Managed, now(),
+		strings.Join(s.AllowIPs, "\n"), strings.Join(s.DenyIPs, "\n"), s.MaxSessionHours)
 	if err != nil {
 		return 0, err
 	}
@@ -510,7 +559,10 @@ func (st *Store) CreateSite(s *Site) (int64, error) {
 	if err := setSiteUsers(tx, id, s.Users); err != nil {
 		return 0, err
 	}
-	return id, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, st.SetSiteGroups(id, s.Groups)
 }
 
 func (st *Store) UpdateSite(s *Site) error {
@@ -519,14 +571,19 @@ func (st *Store) UpdateSite(s *Site) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`update sites set domain = ?, target = ?, access = ?, require_2fa = ?, bypass = ?, enabled = ?, managed = ? where id = ?`,
-		s.Domain, s.Target, s.Access, s.Require2FA, strings.Join(s.Bypass, "\n"), s.Enabled, s.Managed, s.ID); err != nil {
+	if _, err := tx.Exec(`update sites set domain = ?, target = ?, access = ?, require_2fa = ?, bypass = ?, enabled = ?, managed = ?,
+		allow_ips = ?, deny_ips = ?, max_session_hours = ? where id = ?`,
+		s.Domain, s.Target, s.Access, s.Require2FA, strings.Join(s.Bypass, "\n"), s.Enabled, s.Managed,
+		strings.Join(s.AllowIPs, "\n"), strings.Join(s.DenyIPs, "\n"), s.MaxSessionHours, s.ID); err != nil {
 		return err
 	}
 	if err := setSiteUsers(tx, s.ID, s.Users); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return st.SetSiteGroups(s.ID, s.Groups)
 }
 
 func setSiteUsers(tx *sql.Tx, siteID int64, users []int64) error {

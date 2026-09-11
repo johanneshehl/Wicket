@@ -238,7 +238,7 @@ func (a *App) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		a.oauthFailRedirect(w, r, st, "nouser", p)
 		return
 	}
-	if st.Admin && u.Role != "admin" {
+	if st.Admin && !canAdmin(u) {
 		a.event(r, "denied", u.Username, "", "not-admin")
 		a.oauthFailRedirect(w, r, st, "noadmin", p)
 		return

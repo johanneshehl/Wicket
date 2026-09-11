@@ -168,6 +168,13 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /preview/{tpl}", a.handlePreview)
 	mux.HandleFunc("GET /oauth/{provider}/start", a.handleOAuthStart)
 	mux.HandleFunc("GET /oauth/{provider}/callback", a.handleOAuthCallback)
+	// Wicket as OpenID Connect provider for other applications
+	mux.HandleFunc("GET /.well-known/openid-configuration", a.handleOIDCDiscovery)
+	mux.HandleFunc("GET /oidc/jwks", a.handleOIDCJWKS)
+	mux.HandleFunc("GET /oidc/authorize", a.handleOIDCAuthorize)
+	mux.HandleFunc("POST /oidc/token", a.handleOIDCToken)
+	mux.HandleFunc("GET /oidc/userinfo", a.handleOIDCUserinfo)
+	mux.HandleFunc("POST /oidc/userinfo", a.handleOIDCUserinfo)
 	mux.Handle("/api/", a.adminAPI())
 
 	return securityHeaders(a.setupGate(mux))
@@ -219,7 +226,7 @@ func clientIP(r *http.Request) string {
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || trustedProxy(ip)) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			return strings.TrimSpace(strings.Split(xff, ",")[0])
 		}
@@ -378,7 +385,7 @@ func (a *App) needs2FASetup(u *User, site *Site) bool {
 	if u.TOTPEnabled {
 		return false
 	}
-	if a.settings().EnforceAdmin2FA && u.Role == "admin" {
+	if a.settings().EnforceAdmin2FA && canAdmin(u) {
 		return true
 	}
 	return site != nil && site.Require2FA
@@ -391,6 +398,7 @@ func (a *App) event(r *http.Request, kind, username, site, detail string) {
 	if err := a.store.AddEvent(e); err != nil {
 		log.Printf("event: %v", err)
 	}
+	go a.afterEvent(e)
 }
 
 func (a *App) janitor() {
@@ -410,6 +418,7 @@ func (a *App) janitor() {
 			}
 		}
 		a.mu.Unlock()
+		cleanupOIDC()
 		time.Sleep(30 * time.Minute)
 	}
 }

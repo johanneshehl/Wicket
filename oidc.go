@@ -333,18 +333,18 @@ func (a *App) handleOIDCAuthorize(w http.ResponseWriter, r *http.Request) {
 	redirectWith(w, r, redirect, url.Values{"code": {code}, "state": {state}})
 }
 
-func oauthError(w http.ResponseWriter, status int, code, desc string) {
+func oidcError(w http.ResponseWriter, status int, code, desc string) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, status, map[string]string{"error": code, "error_description": desc})
 }
 
 func (a *App) handleOIDCToken(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		oauthError(w, http.StatusBadRequest, "invalid_request", "malformed body")
+		oidcError(w, http.StatusBadRequest, "invalid_request", "malformed body")
 		return
 	}
 	if r.PostForm.Get("grant_type") != "authorization_code" {
-		oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "only authorization_code")
+		oidcError(w, http.StatusBadRequest, "unsupported_grant_type", "only authorization_code")
 		return
 	}
 	id, secret, basic := r.BasicAuth()
@@ -357,7 +357,7 @@ func (a *App) handleOIDCToken(w http.ResponseWriter, r *http.Request) {
 	c := a.oidcClient(id)
 	if c == nil || (!c.Public && subtle.ConstantTimeCompare([]byte(sha(secret)), []byte(c.SecretHash)) != 1) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="wicket"`)
-		oauthError(w, http.StatusUnauthorized, "invalid_client", "unknown client or wrong secret")
+		oidcError(w, http.StatusUnauthorized, "invalid_client", "unknown client or wrong secret")
 		return
 	}
 
@@ -367,19 +367,19 @@ func (a *App) handleOIDCToken(w http.ResponseWriter, r *http.Request) {
 	delete(oidcState.codes, h) // single use
 	oidcState.mu.Unlock()
 	if !ok || grant.Expires < now() || grant.ClientID != c.ID || grant.RedirectURI != r.PostForm.Get("redirect_uri") {
-		oauthError(w, http.StatusBadRequest, "invalid_grant", "code is invalid, expired or already used")
+		oidcError(w, http.StatusBadRequest, "invalid_grant", "code is invalid, expired or already used")
 		return
 	}
 	if grant.Challenge != "" {
 		sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
 		if subtle.ConstantTimeCompare([]byte(b64url.EncodeToString(sum[:])), []byte(grant.Challenge)) != 1 {
-			oauthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
+			oidcError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
 			return
 		}
 	}
 	u, err := a.store.UserByID(grant.UserID)
 	if err != nil || u == nil || u.Disabled {
-		oauthError(w, http.StatusBadRequest, "invalid_grant", "user no longer exists")
+		oidcError(w, http.StatusBadRequest, "invalid_grant", "user no longer exists")
 		return
 	}
 
@@ -395,7 +395,7 @@ func (a *App) handleOIDCToken(w http.ResponseWriter, r *http.Request) {
 	}
 	idToken, err := a.signJWT(claims)
 	if err != nil {
-		oauthError(w, http.StatusInternalServerError, "server_error", "signing failed")
+		oidcError(w, http.StatusInternalServerError, "server_error", "signing failed")
 		return
 	}
 	access := newToken()

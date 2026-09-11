@@ -83,6 +83,7 @@ func (a *App) adminAPI() http.Handler {
 	mux.HandleFunc("PUT /api/sites/{id}", a.apiSiteUpdate)
 	mux.HandleFunc("DELETE /api/sites/{id}", a.apiSiteDelete)
 	mux.HandleFunc("GET /api/dns", a.apiDNS)
+	a.registerExtAPI(mux)
 
 	mux.HandleFunc("GET /api/users", a.apiUsers)
 	mux.HandleFunc("POST /api/users", a.apiUserCreate)
@@ -108,7 +109,7 @@ func (a *App) adminAPI() http.Handler {
 			return
 		}
 		sess, user := a.activeSession(r)
-		if sess == nil || user.Role != "admin" {
+		if sess == nil || !canAdmin(user) {
 			a.errKey(w, r, http.StatusUnauthorized, "err.notSignedIn")
 			return
 		}
@@ -118,6 +119,11 @@ func (a *App) adminAPI() http.Handler {
 		}
 		if r.Method != http.MethodGet && r.Header.Get("X-Wicket") != "1" {
 			a.errKey(w, r, http.StatusForbidden, "err.rejected")
+			return
+		}
+		// auditors read everything but may only change their own account
+		if user.Role == "auditor" && r.Method != http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/me") {
+			a.errKey(w, r, http.StatusForbidden, "err.readOnly")
 			return
 		}
 		if now()-sess.LastSeen > 60 {
@@ -132,10 +138,11 @@ func (a *App) adminAPI() http.Handler {
 // ---------------------------------------------------------------- event groups
 
 var kindGroups = map[string][]string{
-	"ok":    {"login_ok", "mfa_enabled", "recovery_used", "logout"},
-	"fail":  {"login_fail_password", "login_fail_user", "mfa_fail", "denied"},
-	"lock":  {"locked"},
-	"admin": {"user_created", "user_updated", "user_deleted", "password_set", "mfa_reset", "sessions_revoked", "site_created", "site_updated", "site_deleted", "settings_changed"},
+	"ok":   {"login_ok", "mfa_enabled", "recovery_used", "logout", "oidc_login"},
+	"fail": {"login_fail_password", "login_fail_user", "mfa_fail", "denied", "blocked"},
+	"lock": {"locked"},
+	"admin": {"user_created", "user_updated", "user_deleted", "password_set", "mfa_reset", "sessions_revoked", "site_created", "site_updated", "site_deleted", "settings_changed",
+		"group_created", "group_updated", "group_deleted", "oidc_client_created", "oidc_client_updated", "oidc_client_deleted"},
 }
 
 var failKinds = []string{"login_fail_password", "login_fail_user", "mfa_fail"}
@@ -232,6 +239,21 @@ func (a *App) validateSite(in *Site) error {
 		bypass = append(bypass, b)
 	}
 	in.Bypass = bypass
+	if in.Access != "users" || in.Groups == nil {
+		in.Groups = []int64{}
+	}
+	allow, err := normalizeIPRules(in.AllowIPs)
+	if err != nil {
+		return userErr("err.ipRule", err.Error())
+	}
+	deny, err := normalizeIPRules(in.DenyIPs)
+	if err != nil {
+		return userErr("err.ipRule", err.Error())
+	}
+	in.AllowIPs, in.DenyIPs = allow, deny
+	if err := between(in.MaxSessionHours, 0, 720, "f.maxSession"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -381,8 +403,9 @@ func (a *App) apiDNS(w http.ResponseWriter, r *http.Request) {
 
 type userView struct {
 	*User
-	Sessions     int `json:"sessions"`
-	RecoveryLeft int `json:"recoveryLeft"`
+	Sessions     int     `json:"sessions"`
+	RecoveryLeft int     `json:"recoveryLeft"`
+	Groups       []int64 `json:"groups"`
 }
 
 func (a *App) apiUsers(w http.ResponseWriter, r *http.Request) {
@@ -396,15 +419,28 @@ func (a *App) apiUsers(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
+	groups, err := a.store.ListGroups()
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	memberOf := map[int64][]int64{}
+	for _, g := range groups {
+		for _, uid := range g.Members {
+			memberOf[uid] = append(memberOf[uid], g.ID)
+		}
+	}
 	out := []userView{}
 	for _, u := range users {
 		left, _ := a.store.RecoveryLeft(u.ID)
-		out = append(out, userView{User: u, Sessions: counts[u.ID], RecoveryLeft: left})
+		gids := memberOf[u.ID]
+		if gids == nil {
+			gids = []int64{}
+		}
+		out = append(out, userView{User: u, Sessions: counts[u.ID], RecoveryLeft: left, Groups: gids})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": out, "me": reqUser(r).ID})
 }
-
-func validRole(role string) bool { return role == "admin" || role == "user" }
 
 func (a *App) apiUserCreate(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Username, Email, Role, Password string }
@@ -469,6 +505,7 @@ func (a *App) apiUserUpdate(w http.ResponseWriter, r *http.Request) {
 		Email    string
 		Role     string
 		Disabled bool
+		Groups   *[]int64 // nil = keep memberships
 	}
 	if err := readJSON(r, &in); err != nil {
 		a.fail(w, r, err)
@@ -494,6 +531,12 @@ func (a *App) apiUserUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if u.Disabled {
 		_ = a.store.DeleteUserSessions(u.ID)
+	}
+	if in.Groups != nil {
+		if err := a.store.SetUserGroups(u.ID, *in.Groups); err != nil {
+			a.fail(w, r, err)
+			return
+		}
 	}
 	a.event(r, "user_updated", reqUser(r).Username, "", u.Username)
 	writeJSON(w, http.StatusOK, u)

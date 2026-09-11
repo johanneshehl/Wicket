@@ -12,13 +12,13 @@ func parseIPRule(s string) (*net.IPNet, error) {
 	if strings.Contains(s, "/") {
 		_, n, err := net.ParseCIDR(s)
 		if err != nil {
-			return nil, fmt.Errorf("ungültiger IP-Bereich %q", s)
+			return nil, fmt.Errorf("invalid IP range %q", s)
 		}
 		return n, nil
 	}
 	ip := net.ParseIP(s)
 	if ip == nil {
-		return nil, fmt.Errorf("ungültige IP-Adresse %q", s)
+		return nil, fmt.Errorf("invalid IP address %q", s)
 	}
 	if v4 := ip.To4(); v4 != nil {
 		return &net.IPNet{IP: v4, Mask: net.CIDRMask(32, 32)}, nil
@@ -44,6 +44,34 @@ func normalizeIPRules(in []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// trustedProxies are peers (besides loopback) whose X-Forwarded-For is believed, e.g. a Traefik
+// container in a Docker network. Set with WICKET_TRUSTED_PROXIES.
+var trustedProxies []*net.IPNet
+
+func setTrustedProxies(list string) error {
+	trustedProxies = nil
+	for _, r := range strings.Split(list, ",") {
+		if r = strings.TrimSpace(r); r == "" {
+			continue
+		}
+		n, err := parseIPRule(r)
+		if err != nil {
+			return err
+		}
+		trustedProxies = append(trustedProxies, n)
+	}
+	return nil
+}
+
+func trustedProxy(ip net.IP) bool {
+	for _, n := range trustedProxies {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func ipMatch(rules []string, ip string) bool {

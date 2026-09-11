@@ -62,6 +62,9 @@ func main() {
 		os.Exit(healthcheck(cfg))
 	}
 
+	if err := setTrustedProxies(env("WICKET_TRUSTED_PROXIES", "")); err != nil {
+		log.Fatalf("WICKET_TRUSTED_PROXIES: %v", err)
+	}
 	store, err := OpenStore(cfg.DataDir)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
