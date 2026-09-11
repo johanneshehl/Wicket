@@ -1,56 +1,50 @@
 {{template "head" .}}
-<body class="auth">
-<main class="center">
-  <div class="stack xwide">
+{{template "shell-open" .}}
   {{if eq .Step 1}}
     <form class="card" method="post" action="/setup-2fa" data-once>
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="rd" value="{{.RD}}">
       <div class="card-head">
-        <h2>Zwei-Faktor einrichten</h2>
-        <p class="muted">{{if .Forced}}Für dein Konto ist Zwei-Faktor Pflicht. {{end}}Scanne den Code mit einer Authenticator-App, z. B. Aegis, 2FAS oder Google Authenticator.</p>
+        <h2>{{.T "title.setup2fa"}}</h2>
+        <p class="muted">{{if .Forced}}{{.T "setup2fa.required"}} {{end}}{{.T "setup2fa.scan"}}</p>
       </div>
       <div class="card-body">
         {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
         <div class="totp">
-          <div class="qr"><img src="{{.QR}}" alt="QR-Code für die Authenticator-App" width="180" height="180"></div>
+          <div class="qr"><img src="{{.QR}}" alt="{{.T "setup2fa.qrAlt"}}" width="180" height="180"></div>
           <div class="totp-side">
-            <div class="label">Oder Schlüssel manuell eingeben
-              <div class="secret"><span>{{.SecretGrouped}}</span><button type="button" class="mini" data-copy="{{.Secret}}">Kopieren</button></div>
+            <div class="label">{{.T "setup2fa.manual"}}
+              <div class="secret"><span>{{.SecretGrouped}}</span><button type="button" class="mini" data-copy="{{.Secret}}" data-copied="{{.T "setup2fa.copied"}}">{{.T "setup2fa.copy"}}</button></div>
             </div>
-            <div class="label">Code aus der App zum Bestätigen
-              {{template "otp"}}
+            <div class="label">{{.T "setup2fa.confirmCode"}}
+              {{template "otp" .}}
             </div>
           </div>
         </div>
       </div>
       <div class="card-foot">
-        <span class="dim small">Angemeldet als {{.Username}}</span>
-        {{if not .Forced}}<a class="btn-ghost right" href="{{.Continue}}">Später</a>{{end}}
-        <button class="btn-light {{if .Forced}}right{{end}}" type="submit">Aktivieren</button>
+        <span class="dim small">{{.T "setup2fa.signedInAs" .Username}}</span>
+        {{if not .Forced}}<a class="btn-ghost right" href="{{.Continue}}">{{.T "setup2fa.later"}}</a>{{end}}
+        <button class="btn-light {{if .Forced}}right{{end}}" type="submit">{{.T "setup2fa.activate"}}</button>
       </div>
     </form>
   {{else}}
     <div class="card">
       <div class="card-head">
-        <h2>Zwei-Faktor ist aktiv</h2>
-        <p class="muted">Speichere diese Wiederherstellungscodes, z. B. in Vaultwarden – falls du dein Handy verlierst. Jeder Code funktioniert genau einmal und wird nur jetzt angezeigt.</p>
+        <h2>{{.T "setup2fa.activeTitle"}}</h2>
+        <p class="muted">{{.T "setup2fa.codesText"}}</p>
       </div>
       <div class="card-body">
         <div class="codes">{{range .Codes}}<div>{{.}}</div>{{end}}</div>
         <div class="row gap8">
-          <button type="button" class="btn-ghost sm" data-copy="{{.CodesText}}">Alle kopieren</button>
-          <a class="btn-ghost sm" download="wicket-wiederherstellungscodes.txt" href="{{.CodesURL}}">Herunterladen</a>
+          <button type="button" class="btn-ghost sm" data-copy="{{.CodesText}}" data-copied="{{.T "setup2fa.copied"}}">{{.T "setup2fa.copyAll"}}</button>
+          <a class="btn-ghost sm" download="wicket-recovery-codes.txt" href="{{.CodesURL}}">{{.T "setup2fa.download"}}</a>
         </div>
       </div>
       <div class="card-foot">
-        <label class="check"><input type="checkbox" data-gate="continue"><span class="box"></span>Codes gespeichert</label>
-        <a class="btn-light right is-disabled" id="continue" href="{{.Continue}}">Weiter</a>
+        <label class="check"><input type="checkbox" data-gate="continue"><span class="box"></span>{{.T "setup2fa.saved"}}</label>
+        <a class="btn-light right is-disabled" id="continue" href="{{.Continue}}">{{.T "setup2fa.continue"}}</a>
       </div>
     </div>
   {{end}}
-  </div>
-</main>
-<script src="/static/auth.js"></script>
-</body>
-</html>
+{{template "shell-close" .}}

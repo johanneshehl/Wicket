@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -25,11 +24,6 @@ const (
 func reqUser(r *http.Request) *User       { u, _ := r.Context().Value(ctxUser).(*User); return u }
 func reqSession(r *http.Request) *Session { s, _ := r.Context().Value(ctxSess).(*Session); return s }
 
-type userError struct{ msg string }
-
-func (e userError) Error() string { return e.msg }
-func userErr(msg string) error    { return userError{msg} }
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -41,19 +35,25 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-func apiFail(w http.ResponseWriter, err error) {
+// errKey answers with a translated error message.
+func (a *App) errKey(w http.ResponseWriter, r *http.Request, status int, key string, args ...any) {
+	writeErr(w, status, tr(a.langFor(r), key, args...))
+}
+
+// fail answers user errors with 400 and anything else with a logged 500.
+func (a *App) fail(w http.ResponseWriter, r *http.Request, err error) {
 	var ue userError
 	if errors.As(err, &ue) {
-		writeErr(w, http.StatusBadRequest, ue.msg)
+		writeErr(w, http.StatusBadRequest, tr(a.langFor(r), ue.key, ue.args...))
 		return
 	}
 	log.Printf("api: %v", err)
-	writeErr(w, http.StatusInternalServerError, "Interner Fehler")
+	a.errKey(w, r, http.StatusInternalServerError, "err.internal")
 }
 
 func readJSON(r *http.Request, v any) error {
 	if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20)).Decode(v); err != nil {
-		return userErr("Ungültige Anfrage")
+		return userErr("err.badRequest")
 	}
 	return nil
 }
@@ -61,7 +61,7 @@ func readJSON(r *http.Request, v any) error {
 func pathID(r *http.Request) (int64, error) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		return 0, userErr("Ungültige ID")
+		return 0, userErr("err.badID")
 	}
 	return id, nil
 }
@@ -98,6 +98,9 @@ func (a *App) adminAPI() http.Handler {
 	mux.HandleFunc("GET /api/events.csv", a.apiEventsCSV)
 	mux.HandleFunc("GET /api/settings", a.apiSettingsGet)
 	mux.HandleFunc("PUT /api/settings", a.apiSettingsPut)
+	mux.HandleFunc("GET /api/oauth", a.apiOAuthList)
+	mux.HandleFunc("PUT /api/oauth/{provider}", a.apiOAuthSave)
+	mux.HandleFunc("POST /api/oauth/{provider}/test", a.apiOAuthTest)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.isAdminHost(r) {
@@ -106,7 +109,7 @@ func (a *App) adminAPI() http.Handler {
 		}
 		sess, user := a.activeSession(r)
 		if sess == nil || user.Role != "admin" {
-			writeErr(w, http.StatusUnauthorized, "Nicht angemeldet")
+			a.errKey(w, r, http.StatusUnauthorized, "err.notSignedIn")
 			return
 		}
 		if a.needs2FASetup(user, nil) {
@@ -114,7 +117,7 @@ func (a *App) adminAPI() http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet && r.Header.Get("X-Wicket") != "1" {
-			writeErr(w, http.StatusForbidden, "Anfrage abgelehnt")
+			a.errKey(w, r, http.StatusForbidden, "err.rejected")
 			return
 		}
 		if now()-sess.LastSeen > 60 {
@@ -150,7 +153,7 @@ func loginKinds() []string {
 func (a *App) apiOverview(w http.ResponseWriter, r *http.Request) {
 	sites, err := a.store.ListSites()
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if sites == nil {
@@ -168,7 +171,7 @@ func (a *App) apiOverview(w http.ResponseWriter, r *http.Request) {
 	prev, _ := a.store.CountEvents(failKinds, t-2*86400, t-86400)
 	events, _, err := a.store.ListEvents(EventQuery{Kinds: loginKinds(), Limit: 6})
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -192,11 +195,11 @@ func (a *App) validateSite(in *Site) error {
 	in.Domain = strings.ToLower(strings.TrimSpace(in.Domain))
 	in.Target = strings.TrimSpace(in.Target)
 	if !domainRE.MatchString(in.Domain) {
-		return userErr("Ungültige Domain, z. B. app.example.com")
+		return userErr("err.siteDomain")
 	}
 	s := a.settings()
 	if in.Domain == s.LoginHost || in.Domain == s.AdminHost {
-		return userErr("Die Login- und Admin-Adresse von Wicket kann keine geschützte Seite sein.")
+		return userErr("err.siteOwnHost")
 	}
 	// the Caddyfile already has a block for this domain: protect that one instead of adding a second
 	if in.Managed && a.caddyfileHasSite(in.Domain) {
@@ -204,16 +207,16 @@ func (a *App) validateSite(in *Site) error {
 	}
 	if in.Managed {
 		if strings.HasPrefix(in.Domain, "*.") {
-			return userErr("Wildcard-Domains gehen nur ohne Caddy-Verwaltung (Zertifikate brauchen eine DNS-Challenge).")
+			return userErr("err.wildcard")
 		}
 		if !targetRE.MatchString(in.Target) {
-			return userErr("Ziel z. B. 127.0.0.1:8080 oder http://container:80")
+			return userErr("err.target")
 		}
 	}
 	switch in.Access {
 	case "all", "admins", "users":
 	default:
-		return userErr("Ungültige Zugriffsregel")
+		return userErr("err.access")
 	}
 	if in.Access != "users" || in.Users == nil {
 		in.Users = []int64{}
@@ -224,7 +227,7 @@ func (a *App) validateSite(in *Site) error {
 			continue
 		}
 		if !bypassRE.MatchString(b) {
-			return userErr(fmt.Sprintf("Ungültige Ausnahme %q – Pfade beginnen mit / und dürfen * nur am Ende haben.", b))
+			return userErr("err.bypass", b)
 		}
 		bypass = append(bypass, b)
 	}
@@ -235,7 +238,7 @@ func (a *App) validateSite(in *Site) error {
 func (a *App) apiSites(w http.ResponseWriter, r *http.Request) {
 	sites, err := a.store.ListSites()
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if sites == nil {
@@ -247,25 +250,25 @@ func (a *App) apiSites(w http.ResponseWriter, r *http.Request) {
 func (a *App) apiSiteCreate(w http.ResponseWriter, r *http.Request) {
 	var in Site
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if err := a.validateSite(&in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	id, err := a.store.CreateSite(&in)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			writeErr(w, http.StatusConflict, "Diese Domain ist schon eingerichtet.")
+			a.errKey(w, r, http.StatusConflict, "err.domainExists")
 			return
 		}
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if err := a.syncCaddy(); err != nil {
 		_ = a.store.DeleteSite(id)
-		writeErr(w, http.StatusBadRequest, "Caddy hat die Konfiguration abgelehnt: "+err.Error())
+		a.errKey(w, r, http.StatusBadRequest, "err.caddyRejected", err.Error())
 		return
 	}
 	a.event(r, "site_created", reqUser(r).Username, in.Domain, "")
@@ -276,35 +279,35 @@ func (a *App) apiSiteCreate(w http.ResponseWriter, r *http.Request) {
 func (a *App) apiSiteUpdate(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	old, err := a.store.SiteByID(id)
 	if err != nil || old == nil {
-		writeErr(w, http.StatusNotFound, "Seite nicht gefunden")
+		a.errKey(w, r, http.StatusNotFound, "err.siteNotFound")
 		return
 	}
 	var in Site
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	in.ID = id
 	if err := a.validateSite(&in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if err := a.store.UpdateSite(&in); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			writeErr(w, http.StatusConflict, "Diese Domain ist schon eingerichtet.")
+			a.errKey(w, r, http.StatusConflict, "err.domainExists")
 			return
 		}
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if err := a.syncCaddy(); err != nil {
 		_ = a.store.UpdateSite(old)
-		writeErr(w, http.StatusBadRequest, "Caddy hat die Konfiguration abgelehnt: "+err.Error())
+		a.errKey(w, r, http.StatusBadRequest, "err.caddyRejected", err.Error())
 		return
 	}
 	a.event(r, "site_updated", reqUser(r).Username, in.Domain, "")
@@ -315,21 +318,21 @@ func (a *App) apiSiteUpdate(w http.ResponseWriter, r *http.Request) {
 func (a *App) apiSiteDelete(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	old, err := a.store.SiteByID(id)
 	if err != nil || old == nil {
-		writeErr(w, http.StatusNotFound, "Seite nicht gefunden")
+		a.errKey(w, r, http.StatusNotFound, "err.siteNotFound")
 		return
 	}
 	if err := a.store.DeleteSite(id); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	warning := ""
 	if err := a.syncCaddy(); err != nil {
-		warning = "Caddy konnte nicht neu geladen werden: " + err.Error()
+		warning = tr(a.langFor(r), "warn.caddyReload", err.Error())
 	}
 	a.event(r, "site_deleted", reqUser(r).Username, old.Domain, "")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "warning": warning})
@@ -385,12 +388,12 @@ type userView struct {
 func (a *App) apiUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := a.store.ListUsers()
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	counts, err := a.store.SessionCounts()
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	out := []userView{}
@@ -406,28 +409,28 @@ func validRole(role string) bool { return role == "admin" || role == "user" }
 func (a *App) apiUserCreate(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Username, Email, Role, Password string }
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	in.Username = strings.TrimSpace(in.Username)
 	switch {
 	case !usernameRE.MatchString(in.Username):
-		writeErr(w, http.StatusBadRequest, "Benutzername: 3–32 Zeichen, nur Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich.")
+		a.errKey(w, r, http.StatusBadRequest, "err.username")
 		return
 	case !validRole(in.Role):
-		writeErr(w, http.StatusBadRequest, "Ungültige Rolle")
+		a.errKey(w, r, http.StatusBadRequest, "err.role")
 		return
 	case len(in.Password) < 10:
-		writeErr(w, http.StatusBadRequest, "Das Passwort braucht mindestens 10 Zeichen.")
+		a.errKey(w, r, http.StatusBadRequest, "err.password10")
 		return
 	}
 	id, err := a.store.CreateUser(&User{Username: in.Username, Email: strings.TrimSpace(in.Email), Role: in.Role, PasswordHash: hashPassword(in.Password)})
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			writeErr(w, http.StatusConflict, "Diesen Benutzernamen gibt es schon.")
+			a.errKey(w, r, http.StatusConflict, "err.userExists")
 			return
 		}
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	a.event(r, "user_created", reqUser(r).Username, "", in.Username)
@@ -438,12 +441,12 @@ func (a *App) apiUserCreate(w http.ResponseWriter, r *http.Request) {
 func (a *App) loadUser(w http.ResponseWriter, r *http.Request) *User {
 	id, err := pathID(r)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return nil
 	}
 	u, err := a.store.UserByID(id)
 	if err != nil || u == nil {
-		writeErr(w, http.StatusNotFound, "Benutzer nicht gefunden")
+		a.errKey(w, r, http.StatusNotFound, "err.userNotFound")
 		return nil
 	}
 	return u
@@ -468,25 +471,25 @@ func (a *App) apiUserUpdate(w http.ResponseWriter, r *http.Request) {
 		Disabled bool
 	}
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if !validRole(in.Role) {
-		writeErr(w, http.StatusBadRequest, "Ungültige Rolle")
+		a.errKey(w, r, http.StatusBadRequest, "err.role")
 		return
 	}
 	demote := in.Role != "admin" || in.Disabled
 	if demote && u.ID == reqUser(r).ID {
-		writeErr(w, http.StatusBadRequest, "Du kannst dir nicht selbst die Admin-Rechte nehmen.")
+		a.errKey(w, r, http.StatusBadRequest, "err.selfDemote")
 		return
 	}
 	if demote && a.lastAdmin(u) {
-		writeErr(w, http.StatusBadRequest, "Es muss mindestens ein aktiver Admin bleiben.")
+		a.errKey(w, r, http.StatusBadRequest, "err.lastAdmin")
 		return
 	}
 	u.Email, u.Role, u.Disabled = strings.TrimSpace(in.Email), in.Role, in.Disabled
 	if err := a.store.UpdateUser(u); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if u.Disabled {
@@ -502,15 +505,15 @@ func (a *App) apiUserDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u.ID == reqUser(r).ID {
-		writeErr(w, http.StatusBadRequest, "Du kannst dein eigenes Konto nicht löschen.")
+		a.errKey(w, r, http.StatusBadRequest, "err.selfDelete")
 		return
 	}
 	if a.lastAdmin(u) {
-		writeErr(w, http.StatusBadRequest, "Es muss mindestens ein aktiver Admin bleiben.")
+		a.errKey(w, r, http.StatusBadRequest, "err.lastAdmin")
 		return
 	}
 	if err := a.store.DeleteUser(u.ID); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	a.event(r, "user_deleted", reqUser(r).Username, "", u.Username)
@@ -524,15 +527,15 @@ func (a *App) apiUserPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct{ Password string }
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if len(in.Password) < 10 {
-		writeErr(w, http.StatusBadRequest, "Das Passwort braucht mindestens 10 Zeichen.")
+		a.errKey(w, r, http.StatusBadRequest, "err.password10")
 		return
 	}
 	if err := a.store.SetPassword(u.ID, hashPassword(in.Password)); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if u.ID != reqUser(r).ID {
@@ -548,11 +551,11 @@ func (a *App) apiUserReset2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u.ID == reqUser(r).ID {
-		writeErr(w, http.StatusBadRequest, "Deine eigene 2FA änderst du unter Einstellungen → Mein Konto.")
+		a.errKey(w, r, http.StatusBadRequest, "err.selfReset2fa")
 		return
 	}
 	if err := a.store.DisableTOTP(u.ID); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	a.event(r, "mfa_reset", reqUser(r).Username, "", u.Username)
@@ -565,7 +568,7 @@ func (a *App) apiUserLogoutAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.store.DeleteUserSessions(u.ID); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	a.event(r, "sessions_revoked", reqUser(r).Username, "", u.Username)
@@ -579,7 +582,7 @@ func (a *App) apiUserSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	sessions, err := a.store.ListUserSessions(u.ID)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	type view struct {
@@ -597,11 +600,11 @@ func (a *App) apiUserSessions(w http.ResponseWriter, r *http.Request) {
 func (a *App) apiSessionDelete(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if err := a.store.DeleteSession(id); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -628,7 +631,7 @@ func (a *App) apiEvents(w http.ResponseWriter, r *http.Request) {
 	q := eventQuery(r)
 	items, total, err := a.store.ListEvents(q)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "pageSize": q.Limit})
@@ -639,15 +642,16 @@ func (a *App) apiEventsCSV(w http.ResponseWriter, r *http.Request) {
 	q.Limit, q.Offset = 100000, 0
 	items, _, err := a.store.ListEvents(q)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
+	lang := a.langFor(r)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="wicket-protokoll.csv"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+tr(lang, "csv.filename")+`"`)
 	w.Write([]byte("\xef\xbb\xbf")) // BOM so Excel detects UTF-8
 	cw := csv.NewWriter(w)
 	cw.Comma = ';'
-	_ = cw.Write([]string{"Zeit", "Ereignis", "Benutzer", "Seite", "IP", "Gerät", "Details"})
+	_ = cw.Write(strings.Split(tr(lang, "csv.header"), ";"))
 	for _, e := range items {
 		_ = cw.Write([]string{time.Unix(e.At, 0).Format("2006-01-02 15:04:05"), e.Kind, e.Username, e.Site, e.IP, e.UA, e.Detail})
 	}
@@ -657,12 +661,12 @@ func (a *App) apiEventsCSV(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- settings
 
 func (a *App) apiSettingsGet(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"settings": a.settings(), "caddy": a.caddyStatus(), "version": version, "authAddr": a.cfg.AuthAddr})
+	writeJSON(w, http.StatusOK, map[string]any{"settings": a.settings(), "caddy": a.caddyStatus(), "version": version, "authAddr": a.cfg.AuthAddr, "templates": loginTemplates, "languages": languages})
 }
 
 func between(v, lo, hi int, name string) error {
 	if v < lo || v > hi {
-		return userErr(fmt.Sprintf("%s muss zwischen %d und %d liegen.", name, lo, hi))
+		return userErr("err.between", trKey(name), lo, hi)
 	}
 	return nil
 }
@@ -670,33 +674,41 @@ func between(v, lo, hi int, name string) error {
 func (a *App) apiSettingsPut(w http.ResponseWriter, r *http.Request) {
 	var in Settings
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	in.CookieDomain = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(in.CookieDomain)), ".")
 	in.LoginHost = strings.ToLower(strings.TrimSpace(in.LoginHost))
 	in.AdminHost = strings.ToLower(strings.TrimSpace(in.AdminHost))
 	if err := validateHosts(in.CookieDomain, in.LoginHost, in.AdminHost); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		a.fail(w, r, err)
 		return
 	}
 	in.CookieDomain = "." + in.CookieDomain
+	if in.Language != "auto" && !supportedLang(in.Language) {
+		a.errKey(w, r, http.StatusBadRequest, "err.language")
+		return
+	}
+	if !validTemplate(in.LoginTemplate) {
+		a.errKey(w, r, http.StatusBadRequest, "err.template")
+		return
+	}
 	for _, err := range []error{
-		between(in.LockAttempts, 3, 50, "Fehlversuche"),
-		between(in.LockWindowSec, 30, 3600, "Zeitfenster"),
-		between(in.LockDurationSec, 60, 86400, "Sperrdauer"),
-		between(in.SessionHours, 1, 720, "Sitzungsdauer"),
-		between(in.RememberDays, 1, 365, "Angemeldet bleiben"),
-		between(in.LogRetentionDays, 7, 3650, "Aufbewahrung"),
+		between(in.LockAttempts, 3, 50, "f.lockAttempts"),
+		between(in.LockWindowSec, 30, 3600, "f.lockWindow"),
+		between(in.LockDurationSec, 60, 86400, "f.lockDuration"),
+		between(in.SessionHours, 1, 720, "f.sessionHours"),
+		between(in.RememberDays, 1, 365, "f.rememberDays"),
+		between(in.LogRetentionDays, 7, 3650, "f.retention"),
 	} {
 		if err != nil {
-			apiFail(w, err)
+			a.fail(w, r, err)
 			return
 		}
 	}
 	old := a.settings()
 	if err := a.saveSettings(in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	relogin := in.CookieDomain != old.CookieDomain
@@ -710,7 +722,7 @@ func (a *App) apiSettingsPut(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.event(r, "settings_changed", reqUser(r).Username, "", "")
-	writeJSON(w, http.StatusOK, map[string]any{"settings": in, "relogin": relogin, "caddyError": caddyErr})
+	writeJSON(w, http.StatusOK, map[string]any{"settings": in, "relogin": relogin, "caddyError": caddyErr, "lang": a.langFor(r)})
 }
 
 // ---------------------------------------------------------------- my account
@@ -719,26 +731,27 @@ func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
 	u := reqUser(r)
 	left, _ := a.store.RecoveryLeft(u.ID)
 	s := a.settings()
-	writeJSON(w, http.StatusOK, map[string]any{"user": u, "recoveryLeft": left, "enforce2fa": s.EnforceAdmin2FA, "domain": rootDomain(s), "version": version})
+	writeJSON(w, http.StatusOK, map[string]any{"user": u, "recoveryLeft": left, "enforce2fa": s.EnforceAdmin2FA,
+		"domain": rootDomain(s), "version": version, "lang": a.langFor(r)})
 }
 
 func (a *App) apiMePassword(w http.ResponseWriter, r *http.Request) {
 	u := reqUser(r)
 	var in struct{ Current, New string }
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if !checkPassword(u.PasswordHash, in.Current) {
-		writeErr(w, http.StatusBadRequest, "Das aktuelle Passwort stimmt nicht.")
+		a.errKey(w, r, http.StatusBadRequest, "err.currentPassword")
 		return
 	}
 	if len(in.New) < 10 {
-		writeErr(w, http.StatusBadRequest, "Das neue Passwort braucht mindestens 10 Zeichen.")
+		a.errKey(w, r, http.StatusBadRequest, "err.newPassword10")
 		return
 	}
 	if err := a.store.SetPassword(u.ID, hashPassword(in.New)); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	a.event(r, "password_set", u.Username, "", u.Username)
@@ -748,12 +761,12 @@ func (a *App) apiMePassword(w http.ResponseWriter, r *http.Request) {
 func (a *App) apiMe2FABegin(w http.ResponseWriter, r *http.Request) {
 	u := reqUser(r)
 	if u.TOTPEnabled {
-		writeErr(w, http.StatusBadRequest, "Zwei-Faktor ist schon aktiv.")
+		a.errKey(w, r, http.StatusBadRequest, "err.2faActive")
 		return
 	}
 	p := &page{}
 	if err := a.fillTOTP(p, u, a.pendingSecret(u.ID)); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"qr": string(p.QR), "secret": p.Secret, "secretGrouped": p.SecretGrouped})
@@ -763,18 +776,18 @@ func (a *App) apiMe2FAConfirm(w http.ResponseWriter, r *http.Request) {
 	u := reqUser(r)
 	var in struct{ Code string }
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	secret := a.pendingSecret(u.ID)
 	step := verifyTOTP(secret, in.Code, 0)
 	if step == 0 {
-		writeErr(w, http.StatusBadRequest, "Der Code stimmt nicht. Prüfe, ob die Uhrzeit auf deinem Handy automatisch gestellt wird.")
+		a.errKey(w, r, http.StatusBadRequest, "err.codeClock")
 		return
 	}
 	codes, err := a.enableTOTP(r, u, reqSession(r), secret, step)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"codes": codes})
@@ -784,20 +797,20 @@ func (a *App) apiMeRecovery(w http.ResponseWriter, r *http.Request) {
 	u := reqUser(r)
 	var in struct{ Password string }
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if !checkPassword(u.PasswordHash, in.Password) {
-		writeErr(w, http.StatusBadRequest, "Das Passwort stimmt nicht.")
+		a.errKey(w, r, http.StatusBadRequest, "err.passwordWrong")
 		return
 	}
 	if !u.TOTPEnabled {
-		writeErr(w, http.StatusBadRequest, "Zwei-Faktor ist nicht aktiv.")
+		a.errKey(w, r, http.StatusBadRequest, "err.2faInactive")
 		return
 	}
 	codes, err := a.newRecoveryCodes(u.ID)
 	if err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"codes": codes})
@@ -807,19 +820,19 @@ func (a *App) apiMe2FADisable(w http.ResponseWriter, r *http.Request) {
 	u := reqUser(r)
 	var in struct{ Password string }
 	if err := readJSON(r, &in); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	if !checkPassword(u.PasswordHash, in.Password) {
-		writeErr(w, http.StatusBadRequest, "Das Passwort stimmt nicht.")
+		a.errKey(w, r, http.StatusBadRequest, "err.passwordWrong")
 		return
 	}
 	if a.settings().EnforceAdmin2FA {
-		writeErr(w, http.StatusBadRequest, "Für Admins ist Zwei-Faktor Pflicht (Einstellungen → Sicherheit).")
+		a.errKey(w, r, http.StatusBadRequest, "err.2faEnforced")
 		return
 	}
 	if err := a.store.DisableTOTP(u.ID); err != nil {
-		apiFail(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	a.event(r, "mfa_reset", u.Username, "", u.Username)

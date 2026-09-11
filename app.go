@@ -25,6 +25,8 @@ type Settings struct {
 	RememberDays     int    `json:"rememberDays"`
 	EnforceAdmin2FA  bool   `json:"enforceAdmin2fa"`
 	LogRetentionDays int    `json:"logRetentionDays"`
+	Language         string `json:"language"`      // "auto" or one of languages
+	LoginTemplate    string `json:"loginTemplate"` // one of loginTemplates
 }
 
 func defaultSettings(cfg Config) Settings {
@@ -32,6 +34,7 @@ func defaultSettings(cfg Config) Settings {
 		CookieDomain: cfg.CookieDomain, LoginHost: cfg.LoginHost, AdminHost: cfg.AdminHost,
 		LockAttempts: 5, LockWindowSec: 120, LockDurationSec: 900,
 		SessionHours: 12, RememberDays: 30, EnforceAdmin2FA: true, LogRetentionDays: 90,
+		Language: "en", LoginTemplate: "centered",
 	}
 }
 
@@ -47,6 +50,7 @@ type App struct {
 	setupPhase  int    // 1 = create admin, 2 = configure domain, 0 = done
 	pendingTOTP map[int64]string
 	deniedSeen  map[string]int64
+	oauthStates map[string]oauthState
 
 	caddyMu sync.Mutex
 }
@@ -56,7 +60,7 @@ func NewApp(cfg Config, st *Store) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, store: st, tmpl: tmpl, limiter: NewLimiter(), pendingTOTP: map[int64]string{}, deniedSeen: map[string]int64{}}
+	a := &App{cfg: cfg, store: st, tmpl: tmpl, limiter: NewLimiter(), pendingTOTP: map[int64]string{}, deniedSeen: map[string]int64{}, oauthStates: map[string]oauthState{}}
 
 	s := defaultSettings(cfg)
 	raw, ok, err := st.GetSetting("settings")
@@ -78,6 +82,13 @@ func NewApp(cfg Config, st *Store) (*App, error) {
 	if s.AdminHost == "" {
 		s.AdminHost = cfg.AdminHost
 	}
+	// settings stored by older versions have no language or template yet
+	if s.Language != "auto" && !supportedLang(s.Language) {
+		s.Language = "en"
+	}
+	if !validTemplate(s.LoginTemplate) {
+		s.LoginTemplate = "centered"
+	}
 	if err := a.saveSettings(s); err != nil {
 		return nil, err
 	}
@@ -89,9 +100,9 @@ func NewApp(cfg Config, st *Store) (*App, error) {
 	if n == 0 {
 		a.setupCode = randomString(4, codeAlphabet) + "-" + randomString(4, codeAlphabet)
 		a.setupPhase = 1
-		log.Printf("┌──────────────────────────────────────────────┐")
-		log.Printf("│  Wicket-Ersteinrichtung – Setup-Code: %s  │", a.setupCode)
-		log.Printf("└──────────────────────────────────────────────┘")
+		log.Printf("┌────────────────────────────────────────────────┐")
+		log.Printf("│  Wicket first-run setup – setup code: %s  │", a.setupCode)
+		log.Printf("└────────────────────────────────────────────────┘")
 	}
 	if err := a.syncCaddy(); err != nil {
 		log.Printf("caddy: %v", err)
@@ -154,6 +165,9 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /setup-2fa", a.handleSetup2FAPost)
 	mux.HandleFunc("GET /setup", a.handleSetupPage)
 	mux.HandleFunc("POST /setup", a.handleSetupPost)
+	mux.HandleFunc("GET /preview/{tpl}", a.handlePreview)
+	mux.HandleFunc("GET /oauth/{provider}/start", a.handleOAuthStart)
+	mux.HandleFunc("GET /oauth/{provider}/callback", a.handleOAuthCallback)
 	mux.Handle("/api/", a.adminAPI())
 
 	return securityHeaders(a.setupGate(mux))
@@ -370,6 +384,8 @@ func (a *App) needs2FASetup(u *User, site *Site) bool {
 	return site != nil && site.Require2FA
 }
 
+// event records an audit log entry. detail is a language-neutral code the admin UI translates
+// ("2fa", "setup", "lock:5:15", ...) or a plain value such as a user name.
 func (a *App) event(r *http.Request, kind, username, site, detail string) {
 	e := Event{At: now(), Kind: kind, Username: username, Site: site, IP: clientIP(r), UA: truncate(r.UserAgent(), 300), Detail: detail}
 	if err := a.store.AddEvent(e); err != nil {

@@ -139,7 +139,7 @@ func (a *App) syncCaddy() error {
 		a.backupCaddyfile(oldCF)
 		// in place (not rename): keeps the inode, owner and permissions of the operator's file
 		if err := os.WriteFile(a.cfg.Caddyfile, newCF, 0o644); err != nil {
-			return fmt.Errorf("Caddyfile nicht schreibbar: %w", err)
+			return fmt.Errorf("Caddyfile is not writable: %w", err)
 		}
 	}
 	for name, content := range want {
@@ -184,10 +184,10 @@ func (a *App) backupCaddyfile(content []byte) {
 func (a *App) reloadCaddy() error {
 	cf, err := os.ReadFile(a.cfg.Caddyfile)
 	if err != nil {
-		return fmt.Errorf("Caddyfile nicht lesbar: %w", err)
+		return fmt.Errorf("cannot read the Caddyfile: %w", err)
 	}
 	if !bytes.Contains(cf, []byte(a.importLine())) {
-		return fmt.Errorf("das Caddyfile enthält noch nicht die Zeile %q", a.importLine())
+		return fmt.Errorf("the Caddyfile does not contain the line %q yet", a.importLine())
 	}
 	req, err := http.NewRequest(http.MethodPost, a.cfg.CaddyAdmin+"/load", bytes.NewReader(cf))
 	if err != nil {
@@ -197,7 +197,7 @@ func (a *App) reloadCaddy() error {
 	client := http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Caddy nicht erreichbar: %w", err)
+		return fmt.Errorf("Caddy is not reachable: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {

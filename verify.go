@@ -30,11 +30,11 @@ func (a *App) handleVerify(w http.ResponseWriter, r *http.Request) {
 
 	site, err := a.store.SiteForHost(host)
 	if err != nil {
-		http.Error(w, "Wicket: interner Fehler", http.StatusInternalServerError)
+		http.Error(w, tr(a.langFor(r), "verify.internal"), http.StatusInternalServerError)
 		return
 	}
 	if site == nil {
-		http.Error(w, "Wicket: diese Domain ist nicht eingerichtet", http.StatusForbidden)
+		http.Error(w, tr(a.langFor(r), "verify.unknown"), http.StatusForbidden)
 		return
 	}
 	if !site.Enabled || bypassed(site.Bypass, uri) {

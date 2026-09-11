@@ -3,43 +3,43 @@
 <main class="center">
   <div class="stack xwide">
     <div class="brand">{{template "logo" 22}}<span>wicket</span></div>
-    <h1 class="h28">Wicket einrichten</h1>
-    <p class="lead">Einmalig beim ersten Start – danach meldest du dich ganz normal an.</p>
+    <h1 class="h28">{{.T "title.setup"}}</h1>
+    <p class="lead">{{.T "setup.lead"}}</p>
     <form class="card mt32" method="post" action="/setup" data-once>
       <div class="card-tabs">
-        <div class="{{if eq .Step 1}}on{{end}}"><span>01</span>Admin-Konto</div>
-        <div class="{{if eq .Step 2}}on{{end}}"><span>02</span>Domain</div>
-        <div><span>03</span>Zwei-Faktor</div>
+        <div class="{{if eq .Step 1}}on{{end}}"><span>01</span>{{.T "setup.tabAccount"}}</div>
+        <div class="{{if eq .Step 2}}on{{end}}"><span>02</span>{{.T "setup.tabDomain"}}</div>
+        <div><span>03</span>{{.T "setup.tab2fa"}}</div>
       </div>
       <div class="card-body">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
         {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
         {{if eq .Step 1}}
-          <label class="label">Setup-Code <span class="hint">steht im Container-Log: <code>docker logs wicket</code></span>
+          <label class="label">{{.T "setup.code"}} <span class="hint">{{.T "setup.codeHint"}} <code>docker logs wicket</code></span>
             <input class="field mono" name="code" placeholder="xxxx-xxxx" autocomplete="off" autocapitalize="none" spellcheck="false" required autofocus>
           </label>
-          <label class="label">Benutzername
+          <label class="label">{{.T "login.username"}}
             <input class="field" name="username" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required>
           </label>
           <div class="grid2">
-            <label class="label">Passwort<input class="field" type="password" name="password" minlength="10" autocomplete="new-password" required data-strength></label>
-            <label class="label">Wiederholen<input class="field" type="password" name="password2" autocomplete="new-password" required></label>
+            <label class="label">{{.T "login.password"}}<input class="field" type="password" name="password" minlength="10" autocomplete="new-password" required data-strength></label>
+            <label class="label">{{.T "setup.repeat"}}<input class="field" type="password" name="password2" autocomplete="new-password" required></label>
           </div>
-          <div class="strength"><div class="meter"><i></i><i></i><i></i><i></i></div><div class="dim small" data-strength-label>Mindestens 10 Zeichen</div></div>
+          <div class="strength"><div class="meter"><i></i><i></i><i></i><i></i></div><div class="dim small" data-strength-label data-labels="{{.T "strength.labels"}}"></div></div>
         {{else}}
-          <label class="label">Hauptdomain <span class="hint">Das Login gilt für diese Domain und alle Subdomains.</span>
+          <label class="label">{{.T "setup.mainDomain"}} <span class="hint">{{.T "setup.mainDomainHint"}}</span>
             <input class="field mono" name="cookieDomain" value="{{.CookieDomain}}" placeholder="example.com" required autofocus>
           </label>
           <div class="grid2">
-            <label class="label">Login-Adresse<input class="field mono" name="loginHost" value="{{.LoginHost}}" placeholder="login.example.com" required></label>
-            <label class="label">Admin-Adresse<input class="field mono" name="adminHost" value="{{.AdminHost}}" placeholder="wicket.example.com" required></label>
+            <label class="label">{{.T "setup.loginHost"}}<input class="field mono" name="loginHost" value="{{.LoginHost}}" placeholder="login.example.com" required></label>
+            <label class="label">{{.T "setup.adminHost"}}<input class="field mono" name="adminHost" value="{{.AdminHost}}" placeholder="wicket.example.com" required></label>
           </div>
-          <div class="info">Beide Adressen brauchen einen DNS-Eintrag auf diesen Server. Wicket legt die Caddy-Einträge selbst an, sobald dein Caddyfile <code>{{.ImportLine}}</code> enthält.</div>
+          <div class="info">{{.T "setup.dnsInfo"}} <code>{{.ImportLine}}</code></div>
         {{end}}
       </div>
       <div class="card-foot">
-        <span class="dim small">Schritt {{.Step}} von 3</span>
-        <button class="btn-light right" type="submit">Weiter</button>
+        <span class="dim small">{{.T "setup.step" .Step}}</span>
+        <button class="btn-light right" type="submit">{{.T "setup.next"}}</button>
       </div>
     </form>
   </div>

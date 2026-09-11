@@ -58,14 +58,19 @@ document.querySelectorAll('[data-countdown]').forEach((el) => {
 });
 
 document.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(b.dataset.copy); const t = b.textContent; b.textContent = 'Kopiert'; setTimeout(() => { b.textContent = t; }, 1500); } catch { /* clipboard blocked */ }
+  try {
+    await navigator.clipboard.writeText(b.dataset.copy);
+    const t = b.textContent;
+    b.textContent = b.dataset.copied || 'Copied';
+    setTimeout(() => { b.textContent = t; }, 1500);
+  } catch { /* clipboard blocked */ }
 }));
 
 document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => {
   if (history.length > 1) history.back(); else location.href = '/';
 }));
 
-// "Codes gespeichert" unlocks the continue button
+// "codes saved" unlocks the continue button
 document.querySelectorAll('[data-gate]').forEach((cb) => {
   const target = document.getElementById(cb.dataset.gate);
   const update = () => target.classList.toggle('is-disabled', !cb.checked);
@@ -74,10 +79,12 @@ document.querySelectorAll('[data-gate]').forEach((cb) => {
   update();
 });
 
-// password strength meter
+// password strength meter; labels come translated from the page: "min|weak|weak|okay|good|strong"
 document.querySelectorAll('[data-strength]').forEach((inp) => {
   const bars = [...document.querySelectorAll('.meter i')];
   const label = document.querySelector('[data-strength-label]');
+  const labels = (label.dataset.labels || '').split('|');
+  label.textContent = labels[0] || '';
   inp.addEventListener('input', () => {
     const v = inp.value;
     let score = 0;
@@ -87,6 +94,6 @@ document.querySelectorAll('[data-strength]').forEach((inp) => {
     if (/\d/.test(v) && /[^A-Za-z0-9]/.test(v)) score++;
     if (v.length < 10) score = Math.min(score, 1);
     bars.forEach((b, i) => b.classList.toggle('on', i < score));
-    label.textContent = v.length < 10 ? 'Mindestens 10 Zeichen' : ['Schwach', 'Schwach', 'Okay', 'Gut', 'Stark'][score];
+    label.textContent = v.length < 10 ? labels[0] : labels[score + 1] || '';
   });
 });

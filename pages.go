@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/subtle"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -16,21 +15,23 @@ import (
 )
 
 type page struct {
-	Title, Error, RD, Target, TargetInitial, Username, CSRF, Kind, Site, Domain, Version string
-	Admin, Recovery, Forced                                                              bool
-	RememberDays                                                                         int
-	Sites                                                                                []string
-	More                                                                                 int
-	Remaining                                                                            string
-	RemainingSec                                                                         int64
-	Step                                                                                 int
-	QR                                                                                   template.URL
-	Secret, SecretGrouped                                                                string
-	Codes                                                                                []string
-	CodesText                                                                            string
-	CodesURL                                                                             template.URL
-	Continue                                                                             string
-	CookieDomain, LoginHost, AdminHost, ImportLine                                       string
+	Lang, Title, Error, RD, Target, TargetInitial, Username, CSRF, Kind, Site, Domain, Version string
+	Tpl, StackClass, TargetName, TargetRest                                                    string
+	Admin, Recovery, Forced, Preview                                                           bool
+	RememberDays                                                                               int
+	Sites                                                                                      []string
+	More                                                                                       int
+	Remaining                                                                                  string
+	RemainingSec                                                                               int64
+	Step                                                                                       int
+	QR                                                                                         template.URL
+	Secret, SecretGrouped                                                                      string
+	Codes                                                                                      []string
+	CodesText                                                                                  string
+	CodesURL                                                                                   template.URL
+	Continue                                                                                   string
+	Providers                                                                                  []oauthButton
+	CookieDomain, LoginHost, AdminHost, ImportLine                                             string
 }
 
 var (
@@ -38,10 +39,23 @@ var (
 	hostRE     = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$`)
 )
 
-func (a *App) basePage(w http.ResponseWriter, r *http.Request, title string) *page {
+// splitHost turns "portainer.example.com" into "portainer" and ".example.com".
+func splitHost(h string) (string, string) {
+	if i := strings.Index(h, "."); i > 0 {
+		return h[:i], h[i:]
+	}
+	return h, ""
+}
+
+func (a *App) basePage(w http.ResponseWriter, r *http.Request, titleKey string) *page {
 	s := a.settings()
-	p := &page{Title: title, CSRF: a.csrfToken(w, r), Admin: a.isAdminHost(r), RememberDays: s.RememberDays,
-		Version: version, Domain: rootDomain(s)}
+	p := &page{Lang: a.langFor(r), CSRF: a.csrfToken(w, r), Admin: a.isAdminHost(r), RememberDays: s.RememberDays,
+		Version: version, Domain: rootDomain(s), Tpl: "centered"}
+	p.Title = p.T(titleKey)
+	p.Providers = a.oauthButtons()
+	if !p.Admin {
+		p.Tpl = s.LoginTemplate
+	}
 	p.RD = validRedirect(r.FormValue("rd"), s)
 	if p.RD != "" {
 		if u, err := url.Parse(p.RD); err == nil {
@@ -49,12 +63,18 @@ func (a *App) basePage(w http.ResponseWriter, r *http.Request, title string) *pa
 			p.TargetInitial = strings.ToUpper(p.Target[:1])
 		}
 	}
+	if p.Target != "" {
+		p.TargetName, p.TargetRest = splitHost(p.Target)
+	} else {
+		p.TargetName, p.TargetRest = splitHost(p.Domain)
+	}
 	return p
 }
 
 func (a *App) render(w http.ResponseWriter, status int, name string, p *page) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Language", p.Lang)
 	w.WriteHeader(status)
 	if err := a.tmpl.ExecuteTemplate(w, name, p); err != nil {
 		log.Printf("render %s: %v", name, err)
@@ -84,7 +104,7 @@ func (a *App) continueTarget(r *http.Request, rd string) string {
 
 func internalError(w http.ResponseWriter, err error) {
 	log.Printf("error: %v", err)
-	http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+	http.Error(w, "Internal error", http.StatusInternalServerError)
 }
 
 func (a *App) siteChips() ([]string, int) {
@@ -134,19 +154,24 @@ func (a *App) handleRoot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Anmelden")
+	p := a.basePage(w, r, "title.signin")
+	if code := r.URL.Query().Get("e"); code != "" {
+		p.Error = a.oauthErrorText(p, code, r.URL.Query().Get("p"))
+	}
 	if sess, user := a.activeSession(r); sess != nil {
 		switch {
 		case p.Admin && user.Role == "admin":
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		case p.Admin:
-			p.Error = "Du bist als " + user.Username + " angemeldet – dieses Konto hat keinen Zugriff auf Wicket."
+			p.Error = p.T("err.signedInNoAdmin", user.Username)
 		case p.RD != "":
 			http.Redirect(w, r, p.RD, http.StatusFound)
 			return
 		default:
 			p.Kind = "signedin"
+			p.Title = p.T("title.signedin")
+			p.StackClass = "wide"
 			p.Username = user.Username
 			a.render(w, http.StatusOK, "site_notice.html", p)
 			return
@@ -170,9 +195,13 @@ func (a *App) renderLogin(w http.ResponseWriter, status int, p *page) {
 
 func (a *App) renderLocked(w http.ResponseWriter, p *page, remaining int64) {
 	p.Kind = "locked"
-	p.Title = "Vorübergehend gesperrt"
+	p.Title = p.T("title.locked")
+	p.StackClass = "wide"
 	p.RemainingSec = remaining
 	p.Remaining = fmt.Sprintf("%02d:%02d", remaining/60, remaining%60)
+	if p.Admin {
+		p.Tpl = "centered"
+	}
 	a.render(w, http.StatusTooManyRequests, "site_notice.html", p)
 }
 
@@ -181,13 +210,13 @@ func (a *App) lockIfNeeded(r *http.Request, key, site string) (int64, bool) {
 	if !a.limiter.Fail(key, s.LockAttempts, s.LockWindowSec, s.LockDurationSec) {
 		return 0, false
 	}
-	a.event(r, "locked", "", site, fmt.Sprintf("%d Fehlversuche · %d Min. gesperrt", s.LockAttempts, s.LockDurationSec/60))
+	a.event(r, "locked", "", site, fmt.Sprintf("lock:%d:%d", s.LockAttempts, s.LockDurationSec/60))
 	rem, _ := a.limiter.Locked(key)
 	return rem, true
 }
 
 func (a *App) handleLoginPost(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Anmelden")
+	p := a.basePage(w, r, "title.signin")
 	key := "ip:" + clientIP(r)
 	if rem, locked := a.limiter.Locked(key); locked {
 		a.renderLocked(w, p, rem)
@@ -195,7 +224,7 @@ func (a *App) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Username = strings.TrimSpace(r.FormValue("username"))
 	if !checkCSRF(r) {
-		p.Error = "Die Seite war zu lange offen – bitte noch einmal versuchen."
+		p.Error = p.T("err.csrf")
 		a.renderLogin(w, http.StatusBadRequest, p)
 		return
 	}
@@ -223,13 +252,13 @@ func (a *App) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 			a.renderLocked(w, p, rem)
 			return
 		}
-		p.Error = "Benutzername oder Passwort ist falsch."
+		p.Error = p.T("err.credentials")
 		a.renderLogin(w, http.StatusUnauthorized, p)
 		return
 	}
 	if p.Admin && u.Role != "admin" {
-		a.event(r, "denied", u.Username, hostOnly(r.Host), "kein Admin")
-		p.Error = "Dieses Konto hat keinen Zugriff auf Wicket."
+		a.event(r, "denied", u.Username, hostOnly(r.Host), "not-admin")
+		p.Error = p.T("err.noAdminAccess")
 		a.renderLogin(w, http.StatusForbidden, p)
 		return
 	}
@@ -263,28 +292,30 @@ func (a *App) afterLogin(w http.ResponseWriter, r *http.Request, u *User, rd str
 // ---------------------------------------------------------------- second factor
 
 func (a *App) handle2FAPage(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Bestätigen")
+	p := a.basePage(w, r, "title.confirm")
 	sess, user := a.readSession(r)
 	if sess == nil || sess.State != "pending" {
 		http.Redirect(w, r, a.loginPath(r)+"?rd="+url.QueryEscape(p.RD), http.StatusFound)
 		return
 	}
 	p.Username = user.Username
+	p.StackClass = "wide"
 	p.Recovery = r.URL.Query().Get("recovery") == "1"
 	a.render(w, http.StatusOK, tpl(p, "2fa"), p)
 }
 
 func (a *App) handle2FAPost(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Bestätigen")
+	p := a.basePage(w, r, "title.confirm")
 	sess, user := a.readSession(r)
 	if sess == nil || sess.State != "pending" {
 		http.Redirect(w, r, a.loginPath(r)+"?rd="+url.QueryEscape(p.RD), http.StatusSeeOther)
 		return
 	}
 	p.Username = user.Username
+	p.StackClass = "wide"
 	p.Recovery = r.FormValue("mode") == "recovery"
 	if !checkCSRF(r) {
-		p.Error = "Die Seite war zu lange offen – bitte noch einmal versuchen."
+		p.Error = p.T("err.csrf")
 		a.render(w, http.StatusBadRequest, tpl(p, "2fa"), p)
 		return
 	}
@@ -316,7 +347,7 @@ func (a *App) handle2FAPost(w http.ResponseWriter, r *http.Request) {
 			a.renderLocked(w, p, rem)
 			return
 		}
-		p.Error = "Der Code stimmt nicht."
+		p.Error = p.T("err.code")
 		a.render(w, http.StatusUnauthorized, tpl(p, "2fa"), p)
 		return
 	}
@@ -325,12 +356,12 @@ func (a *App) handle2FAPost(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	a.event(r, "login_ok", user.Username, p.Target, "mit 2FA")
+	a.event(r, "login_ok", user.Username, p.Target, "2fa")
 	_ = a.store.TouchUser(user.ID)
 	a.afterLogin(w, r, user, p.RD)
 }
 
-// ---------------------------------------------------------------- logout & notices
+// ---------------------------------------------------------------- logout, notices, preview
 
 func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if sess, user := a.readSession(r); sess != nil {
@@ -344,18 +375,46 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDenied(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Kein Zugriff")
+	p := a.basePage(w, r, "title.denied")
 	sess, user := a.activeSession(r)
 	if sess == nil {
 		http.Redirect(w, r, a.loginPath(r), http.StatusFound)
 		return
 	}
 	p.Kind = "denied"
+	p.StackClass = "wide"
 	p.Username = user.Username
+	p.Site = p.T("notice.thisSite")
 	if site := hostOnly(r.URL.Query().Get("site")); hostRE.MatchString(site) {
 		p.Site = site
+		p.Target = site
+		p.TargetInitial = strings.ToUpper(site[:1])
+		p.TargetName, p.TargetRest = splitHost(site)
 	}
 	a.render(w, http.StatusForbidden, "site_notice.html", p)
+}
+
+// handlePreview shows a login template with sample data (admins only, on the admin host).
+func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("tpl")
+	if !validTemplate(name) {
+		http.NotFound(w, r)
+		return
+	}
+	if sess, user := a.activeSession(r); !a.isAdminHost(r) || sess == nil || user.Role != "admin" {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	p := a.basePage(w, r, "title.signin")
+	p.Admin, p.Preview, p.Tpl = false, true, name
+	d := p.Domain
+	if d == "" {
+		d = "example.com"
+	}
+	p.Target = "app." + d
+	p.TargetInitial = "A"
+	p.TargetName, p.TargetRest = splitHost(p.Target)
+	a.render(w, http.StatusOK, "site_login.html", p)
 }
 
 // ---------------------------------------------------------------- 2FA enrollment
@@ -418,8 +477,19 @@ func (a *App) newRecoveryCodes(uid int64) ([]string, error) {
 	return codes, a.store.ReplaceRecoveryCodes(uid, hashes)
 }
 
+// setup2FAPage keeps the enrollment card centered: the wide card does not fit the
+// side-panel templates, so only the light/dark choice of the template is kept.
+func (a *App) setup2FAPage(w http.ResponseWriter, r *http.Request) *page {
+	p := a.basePage(w, r, "title.setup2fa")
+	if p.Tpl != "light" {
+		p.Tpl = "centered"
+	}
+	p.StackClass = "xwide"
+	return p
+}
+
 func (a *App) handleSetup2FAPage(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Zwei-Faktor einrichten")
+	p := a.setup2FAPage(w, r)
 	sess, user := a.activeSession(r)
 	if sess == nil {
 		http.Redirect(w, r, a.loginPath(r)+"?rd="+url.QueryEscape(p.RD), http.StatusFound)
@@ -441,7 +511,7 @@ func (a *App) handleSetup2FAPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSetup2FAPost(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Zwei-Faktor einrichten")
+	p := a.setup2FAPage(w, r)
 	sess, user := a.activeSession(r)
 	if sess == nil {
 		http.Redirect(w, r, a.loginPath(r), http.StatusSeeOther)
@@ -457,7 +527,7 @@ func (a *App) handleSetup2FAPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if step == 0 {
 		p.Step = 1
-		p.Error = "Der Code stimmt nicht. Prüfe, ob die Uhrzeit auf deinem Handy automatisch gestellt wird."
+		p.Error = p.T("err.codeClock")
 		if err := a.fillTOTP(p, user, secret); err != nil {
 			internalError(w, err)
 			return
@@ -473,7 +543,7 @@ func (a *App) handleSetup2FAPost(w http.ResponseWriter, r *http.Request) {
 	p.Step = 2
 	p.Codes = codes
 	p.CodesText = strings.Join(codes, "\n")
-	p.CodesURL = template.URL("data:text/plain;charset=utf-8," + url.PathEscape("Wicket – Wiederherstellungscodes für "+user.Username+"\n\n"+p.CodesText+"\n"))
+	p.CodesURL = template.URL("data:text/plain;charset=utf-8," + url.PathEscape(p.T("setup2fa.fileTitle", user.Username)+"\n\n"+p.CodesText+"\n"))
 	a.render(w, http.StatusOK, "setup_2fa.html", p)
 }
 
@@ -482,15 +552,15 @@ func (a *App) handleSetup2FAPost(w http.ResponseWriter, r *http.Request) {
 func validateHosts(cookieDomain, loginHost, adminHost string) error {
 	root := strings.TrimPrefix(cookieDomain, ".")
 	if !hostRE.MatchString(root) {
-		return errors.New("Die Hauptdomain ist ungültig, z. B. example.com.")
+		return userErr("err.domain")
 	}
 	for _, h := range []string{loginHost, adminHost} {
 		if !hostRE.MatchString(h) || !withinDomain(h, root) {
-			return fmt.Errorf("%q muss eine Subdomain von %s sein.", h, root)
+			return userErr("err.subdomain", h, root)
 		}
 	}
 	if loginHost == adminHost {
-		return errors.New("Login- und Admin-Adresse müssen verschieden sein.")
+		return userErr("err.hostsDiffer")
 	}
 	return nil
 }
@@ -504,7 +574,7 @@ func (a *App) fillSetupDefaults(p *page) {
 }
 
 func (a *App) handleSetupPage(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Wicket einrichten")
+	p := a.basePage(w, r, "title.setup")
 	switch a.phase() {
 	case 1:
 		p.Step = 1
@@ -523,21 +593,21 @@ func (a *App) handleSetupPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSetupPost(w http.ResponseWriter, r *http.Request) {
-	p := a.basePage(w, r, "Wicket einrichten")
+	p := a.basePage(w, r, "title.setup")
 	p.Step = a.phase()
 	if p.Step == 0 {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	fail := func(msg string) {
-		p.Error = msg
+	fail := func(key string, args ...any) {
+		p.Error = p.T(key, args...)
 		a.render(w, http.StatusBadRequest, "setup.html", p)
 	}
 	if !checkCSRF(r) {
 		if p.Step == 2 {
 			a.fillSetupDefaults(p)
 		}
-		fail("Die Seite war zu lange offen – bitte noch einmal versuchen.")
+		fail("err.csrf")
 		return
 	}
 
@@ -553,19 +623,19 @@ func (a *App) handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 		if subtle.ConstantTimeCompare([]byte(normalizeCode(r.FormValue("code"))), []byte(code)) != 1 {
 			a.lockIfNeeded(r, key, "")
-			fail("Der Setup-Code stimmt nicht. Du findest ihn im Container-Log (docker logs wicket).")
+			fail("err.setupCode")
 			return
 		}
 		pw := r.FormValue("password")
 		switch {
 		case !usernameRE.MatchString(p.Username):
-			fail("Benutzername: 3–32 Zeichen, nur Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich.")
+			fail("err.username")
 			return
 		case len(pw) < 10:
-			fail("Das Passwort braucht mindestens 10 Zeichen.")
+			fail("err.password10")
 			return
 		case pw != r.FormValue("password2"):
-			fail("Die Passwörter stimmen nicht überein.")
+			fail("err.passwordMatch")
 			return
 		}
 		id, err := a.store.CreateUser(&User{Username: p.Username, Role: "admin", PasswordHash: hashPassword(pw)})
@@ -582,7 +652,7 @@ func (a *App) handleSetupPost(w http.ResponseWriter, r *http.Request) {
 			internalError(w, err)
 			return
 		}
-		a.event(r, "user_created", u.Username, "", "Ersteinrichtung")
+		a.event(r, "user_created", u.Username, "", "setup")
 		a.setPhase(2)
 		http.Redirect(w, r, "/setup", http.StatusSeeOther)
 		return
@@ -598,7 +668,8 @@ func (a *App) handleSetupPost(w http.ResponseWriter, r *http.Request) {
 	p.AdminHost = strings.ToLower(strings.TrimSpace(r.FormValue("adminHost")))
 	p.ImportLine = a.importLine()
 	if err := validateHosts(p.CookieDomain, p.LoginHost, p.AdminHost); err != nil {
-		fail(err.Error())
+		p.Error = msgFor(p.Lang, err)
+		a.render(w, http.StatusBadRequest, "setup.html", p)
 		return
 	}
 	s := a.settings()
@@ -619,6 +690,6 @@ func (a *App) handleSetupPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setPhase(0)
-	a.event(r, "settings_changed", user.Username, "", "Ersteinrichtung abgeschlossen")
+	a.event(r, "settings_changed", user.Username, "", "setup-done")
 	http.Redirect(w, r, "/setup-2fa", http.StatusSeeOther)
 }

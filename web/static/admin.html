@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -18,25 +18,27 @@
     <span class="slash">/</span>
     <span class="muted" id="domainLabel"></span>
     <div class="right app-user">
-      <button class="avatar" id="avatarBtn" type="button" aria-haspopup="true" aria-label="Konto"></button>
+      <button class="avatar" id="avatarBtn" type="button" aria-haspopup="true" data-i18n-label="menu.account"></button>
       <div class="menu" id="userMenu" hidden>
         <div class="menu-head" id="menuHead"></div>
-        <a href="#/settings/konto">Mein Konto</a>
-        <a href="/logout">Abmelden</a>
+        <a href="#/settings/account" data-i18n="menu.account">My account</a>
+        <a href="/logout" data-i18n="menu.signout">Sign out</a>
       </div>
     </div>
   </div>
   <nav class="tabs" id="tabs">
-    <a href="#/" data-tab="">Übersicht</a>
-    <a href="#/sites" data-tab="sites">Seiten</a>
-    <a href="#/users" data-tab="users">Benutzer</a>
-    <a href="#/log" data-tab="log">Protokoll</a>
-    <a href="#/settings" data-tab="settings">Einstellungen</a>
+    <a href="#/" data-tab="" data-i18n="nav.overview">Overview</a>
+    <a href="#/sites" data-tab="sites" data-i18n="nav.sites">Sites</a>
+    <a href="#/users" data-tab="users" data-i18n="nav.users">Users</a>
+    <a href="#/templates" data-tab="templates" data-i18n="nav.templates">Templates</a>
+    <a href="#/log" data-tab="log" data-i18n="nav.log">Log</a>
+    <a href="#/settings" data-tab="settings" data-i18n="nav.settings">Settings</a>
   </nav>
 </header>
 <main id="view"></main>
 <div id="modal"></div>
 <div id="toast" role="status" aria-live="polite"></div>
+<script src="/static/i18n.js"></script>
 <script src="/static/admin.js"></script>
 </body>
 </html>

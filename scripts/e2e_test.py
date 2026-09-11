@@ -16,8 +16,9 @@ results = []
 
 
 def check(name, cond, info=""):
-    results.append(cond)
-    print(f"{'OK  ' if cond else 'FAIL'} {name}{' - ' + str(info) if info else ''}")
+    ok = bool(cond)
+    results.append(ok)
+    print(f"{'OK  ' if ok else 'FAIL'} {name}{' - ' + str(info) if info else ''}")
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -76,16 +77,17 @@ def verify(host, uri, cookie=""):
     return req(op, "GET", RAW + "/verify", headers=h)
 
 
-# ------------------------------------------------------------------ first-run setup
+# ------------------------------------------------------------------ first-run setup (English by default)
 admin, ajar = client()
 st, _, html, url = req(admin, "GET", ADMIN + "/")
-check("unset instance redirects to /setup", url.endswith("/setup") and "Setup-Code" in html)
+check("unset instance redirects to /setup", url.endswith("/setup") and "Setup code" in html)
+check("default language is English", '<html lang="en">' in html)
 st, _, html, _ = req(admin, "POST", ADMIN + "/setup", {"csrf": csrf(html), "code": "xxxx-xxxx", "username": "testadmin", "password": PW_ADMIN, "password2": PW_ADMIN})
-check("wrong setup code rejected", st == 400 and "Setup-Code stimmt nicht" in html)
+check("wrong setup code rejected", st == 400 and "setup code is not correct" in html)
 st, _, html, url = req(admin, "POST", ADMIN + "/setup", {"csrf": csrf(html), "code": SETUP_CODE, "username": "testadmin", "password": PW_ADMIN, "password2": PW_ADMIN})
 check("step 1 creates admin -> step 2", st == 200 and 'name="cookieDomain"' in html, st)
 st, _, html, url = req(admin, "POST", ADMIN + "/setup", {"csrf": csrf(html), "cookieDomain": "localtest.me", "loginHost": "login.localtest.me", "adminHost": "wicket.localtest.me"})
-check("step 2 -> forced 2FA setup", url.endswith("/setup-2fa") and "Pflicht" in html, url)
+check("step 2 -> forced 2FA setup", url.endswith("/setup-2fa") and "required" in html, url)
 secret = re.search(r'data-copy="([A-Z2-7]{32})"', html).group(1)
 check("QR code rendered", "data:image/png;base64," in html)
 st, _, html, _ = req(admin, "POST", ADMIN + "/setup-2fa", {"csrf": csrf(html), "code": "000000"})
@@ -94,12 +96,12 @@ st, _, html, _ = req(admin, "POST", ADMIN + "/setup-2fa", {"csrf": csrf(html), "
 codes = re.findall(r"<div>([a-z0-9]{4}-[a-z0-9]{4})</div>", html)
 check("2FA enabled, 10 recovery codes shown", st == 200 and len(codes) == 10, len(codes))
 st, _, html, _ = req(admin, "GET", ADMIN + "/")
-check("admin UI served", st == 200 and "admin.js" in html)
+check("admin UI served", st == 200 and "admin.js" in html and "i18n.js" in html)
 
 # ------------------------------------------------------------------ admin API
 st, _, body, _ = req(admin, "GET", ADMIN + "/api/me")
 me = json.loads(body)
-check("GET /api/me", st == 200 and me["user"]["username"] == "testadmin" and me["user"]["totpEnabled"])
+check("GET /api/me", st == 200 and me["user"]["username"] == "testadmin" and me["user"]["totpEnabled"] and me["lang"] == "en")
 st, _, body, _ = req(admin, "POST", ADMIN + "/api/users", headers={"X-Wicket": "0"}, json_body={"username": "x", "role": "user", "password": "x"})
 check("mutation without X-Wicket header refused", st == 403)
 st, _, body, _ = req(admin, "POST", ADMIN + "/api/users", json_body={"username": "anna", "email": "anna@example.com", "role": "user", "password": PW_ANNA})
@@ -110,7 +112,7 @@ check("create site app (users: anna, unmanaged)", st == 201, body[:160])
 st, _, body, _ = req(admin, "POST", ADMIN + "/api/sites", json_body={"domain": "secret.localtest.me", "target": "", "access": "admins", "users": [], "require2fa": False, "bypass": [], "enabled": True, "managed": False})
 check("create site secret (admins only)", st == 201, body[:160])
 st, _, body, _ = req(admin, "POST", ADMIN + "/api/sites", json_body={"domain": "bad domain", "access": "all", "bypass": [], "enabled": True, "managed": False})
-check("invalid domain rejected", st == 400 and "Domain" in body)
+check("invalid domain rejected (English message)", st == 400 and "Invalid domain" in body, body)
 st, _, body, _ = req(admin, "POST", ADMIN + "/api/sites", json_body={"domain": "x.localtest.me", "access": "all", "bypass": ["/a*b"], "enabled": True, "managed": False})
 check("invalid bypass rejected", st == 400)
 st, _, body, _ = req(admin, "GET", ADMIN + "/api/overview")
@@ -131,11 +133,11 @@ check("unknown domain -> 403", st == 403)
 st, _, _, _ = verify("login.localtest.me", "/")
 check("verify ignores Wicket's own hosts", st == 404)
 
-# anna logs in through the login host
+# anna signs in through the login host
 anna, jjar = client(follow=False)
 rd = "https://app.localtest.me/dashboard"
 st, _, html, _ = req(anna, "GET", LOGIN + "/?rd=" + urllib.parse.quote(rd))
-check("site login page shows target", st == 200 and "app.localtest.me" in html)
+check("site login page shows target", st == 200 and "app.localtest.me" in html and "Sign in" in html)
 st, h, _, _ = req(anna, "POST", LOGIN + "/login", {"csrf": csrf(html), "rd": rd, "username": "anna", "password": PW_ANNA, "remember": "1"})
 check("anna login redirects back to rd", st == 303 and h.get("Location") == rd, h.get("Location"))
 ck = cookie_header(jjar)
@@ -153,7 +155,7 @@ check("non-admin cannot use admin API", st == 401)
 # admin 2FA login with a recovery code (TOTP step already used)
 adm2, ajar2 = client(follow=False)
 st, _, html, _ = req(adm2, "GET", ADMIN + "/login")
-check("admin login page (split)", st == 200 and "Willkommen zurück" in html)
+check("admin login page (split)", st == 200 and "Welcome back" in html)
 st, h, _, _ = req(adm2, "POST", ADMIN + "/login", {"csrf": csrf(html), "username": "testadmin", "password": PW_ADMIN})
 check("password ok -> 2FA step", st == 303 and h["Location"].startswith("/2fa"), h.get("Location"))
 st, _, html, _ = req(adm2, "GET", ADMIN + "/2fa?recovery=1")
@@ -169,12 +171,70 @@ st, _, body, _ = req(admin, "GET", ADMIN + "/api/events?range=24h")
 kinds = {e["kind"] for e in json.loads(body)["items"]}
 check("events logged", {"login_ok", "denied", "mfa_enabled", "recovery_used", "mfa_fail"} <= kinds, sorted(kinds))
 st, h, body, _ = req(admin, "GET", ADMIN + "/api/events.csv?range=24h")
-check("CSV export", st == 200 and "Zeit;Ereignis" in body)
+check("CSV export", st == 200 and "Time;Event" in body)
 st, _, body, _ = req(admin, "GET", ADMIN + f"/api/users/{anna_id}/sessions")
 check("anna has active sessions", st == 200 and len(json.loads(body)["sessions"]) >= 1)
 st, _, _, _ = req(admin, "POST", ADMIN + f"/api/users/{anna_id}/logout", json_body={})
 st, _, _, _ = verify("app.localtest.me", "/dashboard", ck)
 check("revoked session no longer passes", st == 302)
+
+# ------------------------------------------------------------------ languages & templates
+anon, _ = client()
+
+
+def put_settings(**changes):
+    _, _, b, _ = req(admin, "GET", ADMIN + "/api/settings")
+    s = json.loads(b)["settings"]
+    s.update(changes)
+    return req(admin, "PUT", ADMIN + "/api/settings", json_body=s)
+
+
+st, _, body, _ = put_settings(language="de")
+check("language set to German", st == 200, body[:120])
+st, _, html, _ = req(anon, "GET", LOGIN + "/", headers={"Accept-Language": "es"})
+check("fixed German ignores the browser", "Anmelden" in html and '<html lang="de">' in html)
+st, _, body, _ = req(admin, "POST", ADMIN + "/api/sites", json_body={"domain": "bad domain", "access": "all", "bypass": [], "enabled": True, "managed": False})
+check("API errors follow the language", "Ungültige Domain" in body, body)
+put_settings(language="auto")
+st, _, html, _ = req(anon, "GET", LOGIN + "/", headers={"Accept-Language": "es-ES,es;q=0.9,en;q=0.8"})
+check("auto: Spanish browser -> Spanish", "Iniciar sesión" in html and '<html lang="es">' in html)
+st, _, html, _ = req(anon, "GET", LOGIN + "/", headers={"Accept-Language": "fr-FR,fr;q=0.9,de;q=0.8"})
+check("auto: unsupported language -> English", "Sign in" in html and '<html lang="en">' in html)
+st, _, body, _ = put_settings(language="fr")
+check("unknown language rejected", st == 400)
+st, _, body, _ = put_settings(language="en", loginTemplate="split")
+check("template set to split", st == 200)
+st, _, html, _ = req(anon, "GET", LOGIN + "/?rd=" + urllib.parse.quote(rd))
+check("login page uses the split template", "tpl-split" in html and "tpl-bigname" in html)
+st, _, body, _ = put_settings(loginTemplate="nope")
+check("unknown template rejected", st == 400)
+st, _, html, _ = req(admin, "GET", ADMIN + "/preview/glass")
+check("admin preview of a template", st == 200 and "tpl-glass" in html and "preview-bar" in html)
+st, _, html, _ = req(anon, "GET", ADMIN + "/preview/glass")
+check("preview needs an admin", "tpl-glass" not in html)
+put_settings(loginTemplate="centered")
+
+# ------------------------------------------------------------------ external sign-in providers
+st, _, body, _ = req(admin, "GET", ADMIN + "/api/oauth")
+provs = {p["id"]: p for p in json.loads(body)["providers"]}
+check("three sign-in providers listed", set(provs) == {"microsoft", "github", "google"}
+      and provs["google"]["redirectUri"] == "https://login.localtest.me/oauth/google/callback", provs.get("google"))
+st, _, body, _ = req(admin, "PUT", ADMIN + "/api/oauth/github", json_body={"clientId": "wicket-invalid-id", "clientSecret": "wicket-invalid-secret", "enabled": True})
+check("enabling with invalid credentials is refused", st == 400 and "GitHub" in body, body[:200])
+st, _, body, _ = req(admin, "GET", ADMIN + "/api/oauth")
+gh = [p for p in json.loads(body)["providers"] if p["id"] == "github"][0]
+check("credentials kept, provider stays off, secret never returned",
+      gh["clientId"] == "wicket-invalid-id" and gh["hasSecret"] and not gh["enabled"] and "clientSecret" not in gh, gh)
+st, _, body, _ = req(admin, "POST", ADMIN + "/api/oauth/google/test", json_body={"clientId": "", "clientSecret": ""})
+check("test without credentials explains what is missing", st == 400 and "required" in body, body[:120])
+st, _, _, _ = req(anon, "GET", LOGIN + "/oauth/github/start")
+check("disabled provider has no sign-in route", st == 404)
+st, _, html, _ = req(anon, "GET", LOGIN + "/")
+check("no provider buttons while disabled", "btn-oauth" not in html)
+st, _, html, _ = req(anon, "GET", LOGIN + "/?e=nouser&p=google")
+check("provider error shown on the login page", "No Wicket account" in html)
+st, _, html, _ = req(anon, "GET", LOGIN + "/?e=<script>&p=x")
+check("unknown error codes are ignored", "<script>" not in html and "alert" not in html)
 
 # brute force (last – locks 127.0.0.1)
 bf, _ = client(follow=False)
@@ -183,7 +243,7 @@ codes_seen = []
 for i in range(6):
     st, _, html2, _ = req(bf, "POST", LOGIN + "/login", {"csrf": csrf(html), "username": "anna", "password": "wrong"})
     codes_seen.append(st)
-check("locked after 5 failures (429)", codes_seen[-1] == 429 and "Vorübergehend gesperrt" in html2, codes_seen)
+check("locked after repeated failures (429)", codes_seen[-1] == 429 and "Temporarily locked" in html2, codes_seen)
 
 print(f"\n{sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

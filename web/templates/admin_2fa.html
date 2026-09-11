@@ -3,15 +3,15 @@
 <section class="split-art">
   <div class="brand">{{template "logo" 22}}<span>wicket</span></div>
   <div class="claim">
-    <h2>Ein Login.<br>Alle deine Dienste.</h2>
-    <p>Verwalte, wer auf welche Seite{{if .Domain}} unter {{.Domain}}{{end}} darf.</p>
+    <h2>{{.T "admin.claim1"}}<br>{{.T "admin.claim2"}}</h2>
+    <p>{{if .Domain}}{{.T "admin.claimSub" .Domain}}{{else}}{{.T "admin.claimSubPlain"}}{{end}}</p>
   </div>
 </section>
 <section class="split-form">
   <div class="inner">
-    {{template "steps"}}
-    <h1 class="mt28">{{if .Recovery}}Wiederherstellungscode{{else}}Bestätigungscode{{end}}</h1>
-    <p class="muted mt8">{{if .Recovery}}Einer deiner zehn Wiederherstellungscodes.{{else}}6-stelliger Code aus deiner Authenticator-App.{{end}}</p>
+    {{template "steps" .}}
+    <h1 class="mt28">{{if .Recovery}}{{.T "2fa.titleRecovery"}}{{else}}{{.T "2fa.titleCode"}}{{end}}</h1>
+    <p class="muted mt8">{{if .Recovery}}{{.T "2fa.adminRecovery"}}{{else}}{{.T "2fa.adminCode"}}{{end}}</p>
     <form class="form" method="post" action="/2fa" data-once>
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="rd" value="{{.RD}}">
@@ -20,12 +20,12 @@
         <input type="hidden" name="mode" value="recovery">
         <input class="field mono" name="recovery" placeholder="xxxx-xxxx" autocomplete="off" autocapitalize="none" spellcheck="false" required autofocus>
       {{else}}
-        {{template "otp"}}
+        {{template "otp" .}}
       {{end}}
-      <button class="btn-primary" type="submit">Bestätigen</button>
+      <button class="btn-primary" type="submit">{{.T "2fa.submit"}}</button>
       <div class="links">
-        <a href="/logout">← Zurück</a>
-        {{if .Recovery}}<a href="/2fa">Code aus der App nutzen</a>{{else}}<a href="/2fa?recovery=1">Wiederherstellungscode nutzen</a>{{end}}
+        <a href="/logout">{{.T "2fa.back"}}</a>
+        {{if .Recovery}}<a href="/2fa">{{.T "2fa.useApp"}}</a>{{else}}<a href="/2fa?recovery=1">{{.T "2fa.useRecovery"}}</a>{{end}}
       </div>
     </form>
   </div>

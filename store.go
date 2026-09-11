@@ -134,6 +134,31 @@ func (st *Store) UserByID(id int64) (*User, error) {
 	return scanUser(st.db.QueryRow(`select `+userCols+` from users where id = ?`, id))
 }
 
+// UserByEmail finds the one user with this email address (case-insensitive); none or several -> nil.
+func (st *Store) UserByEmail(email string) (*User, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil, nil
+	}
+	rows, err := st.db.Query(`select `+userCols+` from users where lower(email) = lower(?)`, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var found []*User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, u)
+	}
+	if len(found) != 1 {
+		return nil, rows.Err()
+	}
+	return found[0], rows.Err()
+}
+
 func (st *Store) ListUsers() ([]*User, error) {
 	rows, err := st.db.Query(`select ` + userCols + ` from users order by role = 'admin' desc, username`)
 	if err != nil {

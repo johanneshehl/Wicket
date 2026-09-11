@@ -3,29 +3,30 @@
 <section class="split-art">
   <div class="brand">{{template "logo" 22}}<span>wicket</span></div>
   <div class="claim">
-    <h2>Ein Login.<br>Alle deine Dienste.</h2>
-    <p>Verwalte, wer auf welche Seite{{if .Domain}} unter {{.Domain}}{{end}} darf.</p>
+    <h2>{{.T "admin.claim1"}}<br>{{.T "admin.claim2"}}</h2>
+    <p>{{if .Domain}}{{.T "admin.claimSub" .Domain}}{{else}}{{.T "admin.claimSubPlain"}}{{end}}</p>
     {{if .Sites}}<div class="chips">{{range .Sites}}<span class="chip">{{.}}</span>{{end}}{{if .More}}<span class="chip dim">+{{.More}}</span>{{end}}</div>{{end}}
   </div>
 </section>
 <section class="split-form">
   <div class="inner">
-    <div class="eyebrow">Wicket Admin</div>
-    <h1>Willkommen zurück</h1>
+    <div class="eyebrow">{{.T "admin.eyebrow"}}</div>
+    <h1>{{.T "admin.welcome"}}</h1>
     <form class="form roomy" method="post" action="/login" data-once>
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="rd" value="{{.RD}}">
       {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
-      <label class="label">Benutzername
+      <label class="label">{{.T "login.username"}}
         <input class="field" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="{{.Username}}" required {{if not .Username}}autofocus{{end}}>
       </label>
-      <label class="label">Passwort
+      <label class="label">{{.T "login.password"}}
         <input class="field" type="password" name="password" autocomplete="current-password" required {{if .Username}}autofocus{{end}}>
       </label>
-      <button class="btn-primary" type="submit">Anmelden</button>
-      <label class="check"><input type="checkbox" name="remember" value="1"><span class="box"></span>Auf diesem Gerät angemeldet bleiben</label>
+      <button class="btn-primary" type="submit">{{.T "admin.signin"}}</button>
+      <label class="check"><input type="checkbox" name="remember" value="1"><span class="box"></span>{{.T "login.rememberDevice"}}</label>
     </form>
-    <div class="split-foot">Zugriff wird protokolliert · Wicket {{.Version}}</div>
+    {{template "oauth" .}}
+    <div class="split-foot">{{.T "admin.foot"}} · Wicket {{.Version}}</div>
   </div>
 </section>
 <script src="/static/auth.js"></script>

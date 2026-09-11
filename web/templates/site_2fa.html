@@ -1,10 +1,8 @@
 {{template "head" .}}
-<body class="auth dots">
-<main class="center">
-  <div class="stack wide">
-    {{template "steps"}}
-    <h1 class="mt32">{{if .Recovery}}Wiederherstellungscode{{else}}Bestätigungscode{{end}}</h1>
-    <p class="lead">Angemeldet als <b>{{.Username}}</b>.<br>{{if .Recovery}}Gib einen deiner Wiederherstellungscodes ein.{{else}}Gib den Code aus deiner Authenticator-App ein.{{end}}</p>
+{{template "shell-open" .}}
+    {{template "steps" .}}
+    <h1 class="mt32">{{if .Recovery}}{{.T "2fa.titleRecovery"}}{{else}}{{.T "2fa.titleCode"}}{{end}}</h1>
+    <p class="lead">{{.TB "2fa.signedInAs" .Username}}<br>{{if .Recovery}}{{.T "2fa.enterRecovery"}}{{else}}{{.T "2fa.enterCode"}}{{end}}</p>
     <form class="form" method="post" action="/2fa" data-once>
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="rd" value="{{.RD}}">
@@ -13,17 +11,12 @@
         <input type="hidden" name="mode" value="recovery">
         <input class="field mono tc" name="recovery" placeholder="xxxx-xxxx" autocomplete="off" autocapitalize="none" spellcheck="false" required autofocus>
       {{else}}
-        {{template "otp"}}
+        {{template "otp" .}}
       {{end}}
-      <button class="btn-primary" type="submit">Bestätigen</button>
+      <button class="btn-primary" type="submit">{{.T "2fa.submit"}}</button>
       <div class="links">
-        <a href="/logout">← Anderer Benutzer</a>
-        {{if .Recovery}}<a href="/2fa?rd={{.RD}}">Code aus der App nutzen</a>{{else}}<a href="/2fa?recovery=1&amp;rd={{.RD}}">Wiederherstellungscode nutzen</a>{{end}}
+        <a href="/logout">{{.T "2fa.otherUser"}}</a>
+        {{if .Recovery}}<a href="/2fa?rd={{.RD}}">{{.T "2fa.useApp"}}</a>{{else}}<a href="/2fa?recovery=1&amp;rd={{.RD}}">{{.T "2fa.useRecovery"}}</a>{{end}}
       </div>
     </form>
-  </div>
-</main>
-{{template "footer"}}
-<script src="/static/auth.js"></script>
-</body>
-</html>
+{{template "shell-close" .}}

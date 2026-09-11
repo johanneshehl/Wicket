@@ -7,6 +7,10 @@ of about 25 MB and stores everything in one SQLite file.
 
 ![Wicket admin overview](docs/screenshots/overview.png)
 
+| Login in front of a protected site | Admin login |
+|---|---|
+| ![Login page with the Glass template](docs/screenshots/login-glass.png) | ![Admin login](docs/screenshots/admin-login.png) |
+
 ## Contents
 
 - [Features](#features)
@@ -14,6 +18,7 @@ of about 25 MB and stores everything in one SQLite file.
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Protecting a site](#protecting-a-site)
+- [Sign in with Microsoft, GitHub and Google](#sign-in-with-microsoft-github-and-google)
 - [Admin interface](#admin-interface)
 - [Configuration](#configuration)
 - [Security](#security)
@@ -23,8 +28,10 @@ of about 25 MB and stores everything in one SQLite file.
 
 ## Features
 
-- **Own login page** instead of the browser's basic-auth popup.
+- **Own login page** instead of the browser's basic-auth popup, with six templates to choose from.
 - **Single sign-on.** One login is valid for every protected site under your domain.
+- **Sign in with Microsoft, GitHub and Google** next to the password, matched to existing users by email.
+- **English, German and Spanish.** Choose a language or let Wicket follow each visitor's browser.
 - **Per-site rules.** Allow all users, admins only, or a selected list of users.
 - **Public paths.** Keep individual paths open, for example `/healthz` or `/api/public/*`.
 - **Two-factor authentication** with any authenticator app (TOTP), including ten single-use recovery codes.
@@ -141,9 +148,7 @@ confirm the domain and hosts, then you set up two-factor authentication. After t
 
 ## Protecting a site
 
-Open **Seiten** (sites) in the admin interface and click **Domain hinzufügen** (add domain).
-
-![Add a domain](docs/screenshots/add-domain.png)
+Open **Sites** in the admin interface and click **Add domain**.
 
 | Field | Meaning |
 |---|---|
@@ -152,11 +157,11 @@ Open **Seiten** (sites) in the admin interface and click **Domain hinzufügen** 
 | Access | All users, admins only, or selected users. Admins always have access. |
 | Two-factor | Require 2FA for this site. Users without 2FA are asked to set it up first. |
 | Public paths | Paths that stay reachable without login. Exact paths or a prefix ending in `*`. |
-| Managed by Wicket | Wicket writes and maintains the Caddy block for this domain. |
+| Let Wicket create the Caddy block | Wicket writes and maintains the Caddy block for this domain. |
 
 ### Managed sites
 
-With **Caddy-Eintrag von Wicket anlegen lassen** enabled, Wicket creates this block and reloads Caddy:
+With **Let Wicket create the Caddy block** enabled, Wicket creates this block and reloads Caddy:
 
 ```
 app.example.com {
@@ -196,21 +201,50 @@ domains such as `*.apps.example.com`.
 
 Every site has a switch in the list. A paused site stays reachable without login, and its rules are kept.
 
+## Sign in with Microsoft, GitHub and Google
+
+Users can sign in with an external account instead of their password. Wicket compares the verified email address
+of that account with the email stored for the Wicket user. There is no automatic sign-up: without a matching
+user the sign-in is refused. Users with two-factor authentication still enter their code afterwards.
+
+1. Register an application with the provider. The redirect URI is shown in **Settings > Sign-in methods** and has
+   the form `https://login.example.com/oauth/<provider>/callback`.
+   - **Microsoft:** Entra admin center > App registrations > New registration. Add the redirect URI as platform
+     "Web" and create a client secret under "Certificates & secrets".
+   - **GitHub:** Settings > Developer settings > OAuth Apps > New OAuth App. Use the redirect URI as
+     "Authorization callback URL".
+   - **Google:** Google Cloud Console > APIs & Services > Credentials > OAuth client ID, type "Web application".
+     Add the redirect URI as authorised redirect URI.
+2. Enter the client ID and client secret in Wicket, tick **Enabled** and save.
+3. Wicket first checks the credentials with the provider. The provider is only switched on if they are accepted;
+   otherwise the error from the provider is shown and the data is kept. **Test** runs the same check without saving.
+
+The buttons then appear on every login page and on the admin login.
+
+For Microsoft, leave the tenant empty to allow personal Microsoft accounts. To allow the work accounts of your
+organisation, enter its tenant ID. Without a tenant, work accounts are refused, because their email address is
+not verified by Microsoft.
+
+![Sign-in methods](docs/screenshots/sign-in-methods.png)
+
 ## Admin interface
 
-The interface is currently in German. English and other languages are planned, see [Roadmap](#roadmap).
+The interface and all login pages are available in English, German and Spanish. Set the language in
+**Settings > General**. With **Automatic**, every visitor gets their browser language, and English if it is not
+supported.
 
-### Sign-in pages
+### Login templates
 
-The login page that visitors see in front of a protected site, and the second step with the authenticator code:
+The **Templates** tab sets the look of the login page in front of your protected sites. The two-factor step and the
+"access denied" and "locked" pages follow the chosen template. Each template can be previewed before you use it.
 
-| Login | Two-factor step |
-|---|---|
-| ![Login page](docs/screenshots/login.png) | ![Two-factor step](docs/screenshots/login-2fa.png) |
+![Templates](docs/screenshots/templates.png)
 
-Wicket's own admin login:
+| Centered | Split | Terminal |
+|---|---|---|
+| ![Centered](docs/screenshots/login.png) | ![Split](docs/screenshots/login-split.png) | ![Terminal](docs/screenshots/login-terminal.png) |
 
-![Admin login](docs/screenshots/admin-login.png)
+Also available: Light, Sidebar and Glass (shown at the top).
 
 ### Sites
 
@@ -233,14 +267,10 @@ Every sign-in, failure, lock and admin change, filterable by type, time range an
 
 ### Settings
 
-Main domain and hosts, session length, brute-force limits, 2FA enforcement for admins, log retention, the status
-of the Caddy connection and your own account.
+Language, main domain and hosts, session length, brute-force limits, 2FA enforcement for admins, log retention,
+sign-in methods, the status of the Caddy connection and your own account.
 
 ![Settings](docs/screenshots/settings.png)
-
-### Two-factor setup
-
-![Two-factor setup](docs/screenshots/two-factor.png)
 
 ## Configuration
 
@@ -333,7 +363,7 @@ Releases are built by GitHub Actions: pushing a tag like `v1.2.0` publishes the 
 
 Planned for upcoming versions:
 
-- **Multiple languages.** English interface, language selection per user, community translations.
+- **More languages** through community translations, and a language choice per user.
 - **Passkeys** (WebAuthn) as second factor or passwordless login.
 - **Groups and roles** to manage access for many users at once.
 - **Invitations and password reset by email** via SMTP.

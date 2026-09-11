@@ -1,27 +1,20 @@
 {{template "head" .}}
-<body class="auth dots">
-<main class="center">
-  <div class="stack wide">
+{{template "shell-open" .}}
   {{if eq .Kind "locked"}}
     <div class="notice-icon warn"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="10" rx="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 10.5V8a4 4 0 018 0v2.5" stroke="currentColor" stroke-width="1.5"/></svg></div>
-    <h1>Vorübergehend gesperrt</h1>
-    <p class="lead">Zu viele fehlgeschlagene Anmeldungen von deiner IP. Versuch es später noch einmal.</p>
+    <h1>{{.T "title.locked"}}</h1>
+    <p class="lead">{{.T "notice.lockedText"}}</p>
     <div class="countdown" data-countdown="{{.RemainingSec}}">{{.Remaining}}</div>
-    <div class="dim small">bis zum nächsten Versuch</div>
+    <div class="dim small">{{.T "notice.untilNext"}}</div>
   {{else if eq .Kind "denied"}}
     <div class="notice-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.5"/><path d="M6 18L18 6" stroke="currentColor" stroke-width="1.5"/></svg></div>
-    <h1>Kein Zugriff</h1>
-    <p class="lead">Du bist als <b>{{.Username}}</b> angemeldet, aber {{if .Site}}<b>{{.Site}}</b>{{else}}diese Seite{{end}} ist für dein Konto nicht freigegeben.</p>
-    <div class="btn-row"><a class="btn-ghost" href="/logout">Anderes Konto</a><button class="btn-light" type="button" data-back>Zurück</button></div>
+    <h1>{{.T "title.denied"}}</h1>
+    <p class="lead">{{.TB "notice.denied" .Username .Site}}</p>
+    <div class="btn-row"><a class="btn-ghost" href="/logout">{{.T "notice.otherAccount"}}</a><button class="btn-light" type="button" data-back>{{.T "notice.back"}}</button></div>
   {{else}}
     <div class="notice-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-    <h1>Angemeldet</h1>
-    <p class="lead">Du bist als <b>{{.Username}}</b> angemeldet und kannst alle freigegebenen Seiten{{if .Domain}} unter {{.Domain}}{{end}} öffnen.</p>
-    <div class="btn-row"><a class="btn-ghost" href="/setup-2fa">Zwei-Faktor einrichten</a><a class="btn-light" href="/logout">Abmelden</a></div>
+    <h1>{{.T "title.signedin"}}</h1>
+    <p class="lead">{{.TB "notice.signedIn" .Username}}</p>
+    <div class="btn-row"><a class="btn-ghost" href="/setup-2fa">{{.T "notice.setup2fa"}}</a><a class="btn-light" href="/logout">{{.T "notice.signout"}}</a></div>
   {{end}}
-  </div>
-</main>
-{{template "footer"}}
-<script src="/static/auth.js"></script>
-</body>
-</html>
+{{template "shell-close" .}}

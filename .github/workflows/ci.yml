@@ -31,7 +31,7 @@ jobs:
           WICKET_DATA=/tmp/wicket-data WICKET_CADDY_DIR=/nonexistent \
             ./wicket > /tmp/wicket.log 2>&1 &
           for i in $(seq 1 30); do curl -fs http://127.0.0.1:9092/healthz && break; sleep 1; done
-          CODE=$(grep -o 'Setup-Code: [a-z0-9-]*' /tmp/wicket.log | awk '{print $2}')
+          CODE=$(grep -o 'setup code: [a-z0-9-]*' /tmp/wicket.log | awk '{print $3}')
           python3 scripts/e2e_test.py 9092 "$CODE"
 
       - name: Server log

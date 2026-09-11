@@ -1,22 +1,16 @@
 {{template "head" .}}
-<body class="auth dots">
-<main class="center">
-  <div class="stack">
+{{template "shell-open" .}}
     <span class="mark">{{template "logo" 40}}</span>
-    <h1>Anmelden</h1>
-    {{if .Target}}<div class="pill"><span class="fav">{{.TargetInitial}}</span><span>weiter zu</span><b>{{.Target}}</b></div>{{end}}
+    <h1>{{.T "title.signin"}}</h1>
+    {{if .Target}}<div class="pill"><span class="fav">{{.TargetInitial}}</span><span>{{.T "login.continueTo"}}</span><b>{{.Target}}</b></div>{{end}}
     <form class="form" method="post" action="/login" data-once>
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="rd" value="{{.RD}}">
       {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
-      <input class="field" name="username" placeholder="Benutzername" autocomplete="username" autocapitalize="none" spellcheck="false" value="{{.Username}}" required {{if not .Username}}autofocus{{end}}>
-      <input class="field" type="password" name="password" placeholder="Passwort" autocomplete="current-password" required {{if .Username}}autofocus{{end}}>
-      <button class="btn-primary" type="submit">Weiter</button>
-      <label class="check"><input type="checkbox" name="remember" value="1" checked><span class="box"></span>Angemeldet bleiben<span class="dim right">{{.RememberDays}} Tage</span></label>
+      <input class="field" name="username" placeholder="{{.T "login.username"}}" autocomplete="username" autocapitalize="none" spellcheck="false" value="{{.Username}}" required {{if not .Username}}autofocus{{end}}>
+      <input class="field" type="password" name="password" placeholder="{{.T "login.password"}}" autocomplete="current-password" required {{if .Username}}autofocus{{end}}>
+      <button class="btn-primary" {{if .Preview}}type="button"{{else}}type="submit"{{end}}>{{.T "login.continue"}}</button>
+      <label class="check"><input type="checkbox" name="remember" value="1" checked><span class="box"></span>{{.T "login.remember"}}<span class="dim right">{{.T "login.days" .RememberDays}}</span></label>
     </form>
-  </div>
-</main>
-{{template "footer"}}
-<script src="/static/auth.js"></script>
-</body>
-</html>
+    {{template "oauth" .}}
+{{template "shell-close" .}}
