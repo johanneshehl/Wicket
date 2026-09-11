@@ -74,7 +74,8 @@ sudo chown 65532:65532 /opt/wicket/data /etc/caddy/wicket
 
 ### 2. Include Wicket in your Caddyfile
 
-Add this line to your Caddyfile, for example at the end:
+Add this line to the top of your Caddyfile, before any site block (after the global options block, if you
+have one):
 
 ```
 import /etc/caddy/wicket/*.caddy
@@ -82,6 +83,9 @@ import /etc/caddy/wicket/*.caddy
 
 Wicket keeps its own files in this directory: the `wicket` snippet with the `forward_auth` configuration, the
 site block for the login and admin hosts, and one block per site it manages for you.
+
+The line has to come first because Caddy defines snippets in the order it reads the file. A site block above it
+that uses `import wicket` fails with `Could not import wicket: is a directory`.
 
 ### 3. Start the container
 
