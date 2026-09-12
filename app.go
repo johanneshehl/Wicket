@@ -168,6 +168,15 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /preview/{tpl}", a.handlePreview)
 	mux.HandleFunc("GET /oauth/{provider}/start", a.handleOAuthStart)
 	mux.HandleFunc("GET /oauth/{provider}/callback", a.handleOAuthCallback)
+	// password reset and invitations (only active with a configured mail server)
+	mux.HandleFunc("GET /reset", a.handleResetPage)
+	mux.HandleFunc("POST /reset", a.handleResetPost)
+	resetGet, resetPost := a.tokenPage("reset")
+	mux.HandleFunc("GET /reset/{token}", resetGet)
+	mux.HandleFunc("POST /reset/{token}", resetPost)
+	inviteGet, invitePost := a.tokenPage("invite")
+	mux.HandleFunc("GET /invite/{token}", inviteGet)
+	mux.HandleFunc("POST /invite/{token}", invitePost)
 	// Wicket as OpenID Connect provider for other applications
 	mux.HandleFunc("GET /.well-known/openid-configuration", a.handleOIDCDiscovery)
 	mux.HandleFunc("GET /oidc/jwks", a.handleOIDCJWKS)
@@ -419,6 +428,7 @@ func (a *App) janitor() {
 		}
 		a.mu.Unlock()
 		cleanupOIDC()
+		a.store.CleanupUserTokens()
 		time.Sleep(30 * time.Minute)
 	}
 }

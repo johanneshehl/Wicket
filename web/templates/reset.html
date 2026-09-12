@@ -1,0 +1,39 @@
+{{template "head" .}}
+{{template "shell-open" .}}
+    <span class="mark">{{template "logo" 40}}</span>
+  {{if eq .Kind "reset-request"}}
+    <h1>{{.T "reset.title"}}</h1>
+    <p class="lead">{{.T "reset.lead"}}</p>
+    <form class="form" method="post" action="/reset" data-once>
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="rd" value="{{.RD}}">
+      {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
+      <input class="field" name="login" placeholder="{{.T "reset.loginField"}}" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+      <button class="btn-primary" type="submit">{{.T "reset.send"}}</button>
+      <div class="links"><a href="{{if .Admin}}/login{{else}}/{{end}}?rd={{.RD}}">{{.T "reset.back"}}</a></div>
+    </form>
+  {{else if eq .Kind "reset-sent"}}
+    <h1>{{.T "reset.sentTitle"}}</h1>
+    <p class="lead">{{.T "reset.sentLead"}}</p>
+    <div class="btn-row"><a class="btn-ghost" href="{{if .Admin}}/login{{else}}/{{end}}?rd={{.RD}}">{{.T "reset.back"}}</a></div>
+  {{else if or (eq .Kind "reset-form") (eq .Kind "invite-form")}}
+    <h1>{{if eq .Kind "invite-form"}}{{.T "invite.title"}}{{else}}{{.T "reset.newTitle"}}{{end}}</h1>
+    <p class="lead">{{if eq .Kind "invite-form"}}{{.TB "invite.lead" .Username}}{{else}}{{.TB "reset.newLead" .Username}}{{end}}</p>
+    <form class="form" method="post" action="{{if eq .Kind "invite-form"}}/invite/{{.Token}}{{else}}/reset/{{.Token}}{{end}}" data-once>
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      {{if .Error}}<div class="alert" role="alert">{{.Error}}</div>{{end}}
+      <input class="field" type="password" name="password" placeholder="{{.T "login.password"}}" minlength="10" autocomplete="new-password" required autofocus data-strength>
+      <input class="field" type="password" name="password2" placeholder="{{.T "setup.repeat"}}" autocomplete="new-password" required>
+      <div class="strength"><div class="meter"><i></i><i></i><i></i><i></i></div><div class="dim small" data-strength-label data-labels="{{.T "strength.labels"}}"></div></div>
+      <button class="btn-primary" type="submit">{{.T "reset.save"}}</button>
+    </form>
+  {{else if eq .Kind "reset-invalid"}}
+    <h1>{{.T "reset.invalidTitle"}}</h1>
+    <p class="lead">{{.T "reset.invalidLead"}}</p>
+    <div class="btn-row"><a class="btn-light" href="/reset">{{.T "reset.again"}}</a></div>
+  {{else}}
+    <h1>{{.T "reset.doneTitle"}}</h1>
+    <p class="lead">{{.T "reset.doneLead"}}</p>
+    <div class="btn-row"><a class="btn-light" href="/">{{.T "reset.toLogin"}}</a></div>
+  {{end}}
+{{template "shell-close" .}}

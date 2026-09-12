@@ -138,11 +138,11 @@ func (a *App) adminAPI() http.Handler {
 // ---------------------------------------------------------------- event groups
 
 var kindGroups = map[string][]string{
-	"ok":   {"login_ok", "mfa_enabled", "recovery_used", "logout", "oidc_login"},
+	"ok":   {"login_ok", "mfa_enabled", "recovery_used", "logout", "oidc_login", "password_reset", "password_reset_requested", "invite_accepted"},
 	"fail": {"login_fail_password", "login_fail_user", "mfa_fail", "denied", "blocked"},
 	"lock": {"locked"},
 	"admin": {"user_created", "user_updated", "user_deleted", "password_set", "mfa_reset", "sessions_revoked", "site_created", "site_updated", "site_deleted", "settings_changed",
-		"group_created", "group_updated", "group_deleted", "oidc_client_created", "oidc_client_updated", "oidc_client_deleted"},
+		"group_created", "group_updated", "group_deleted", "oidc_client_created", "oidc_client_updated", "oidc_client_deleted", "invite_sent"},
 }
 
 var failKinds = []string{"login_fail_password", "login_fail_user", "mfa_fail"}
@@ -443,12 +443,27 @@ func (a *App) apiUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiUserCreate(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Username, Email, Role, Password string }
+	var in struct {
+		Username, Email, Role, Password string
+		Invite                          bool // no password: the user chooses one via an e-mailed link
+	}
 	if err := readJSON(r, &in); err != nil {
 		a.fail(w, r, err)
 		return
 	}
 	in.Username = strings.TrimSpace(in.Username)
+	in.Email = strings.TrimSpace(in.Email)
+	if in.Invite {
+		switch {
+		case !a.mailEnabled():
+			a.errKey(w, r, http.StatusBadRequest, "err.smtpMissing")
+			return
+		case !strings.Contains(in.Email, "@"):
+			a.errKey(w, r, http.StatusBadRequest, "err.userNoEmail")
+			return
+		}
+		in.Password = newToken() // unusable until the invitation is accepted
+	}
 	switch {
 	case !usernameRE.MatchString(in.Username):
 		a.errKey(w, r, http.StatusBadRequest, "err.username")
@@ -471,6 +486,14 @@ func (a *App) apiUserCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	a.event(r, "user_created", reqUser(r).Username, "", in.Username)
 	u, _ := a.store.UserByID(id)
+	if in.Invite && u != nil {
+		if err := a.issueLink(u, "invite", a.notifyLang(), inviteTTL); err != nil {
+			// the user exists; the admin can resend the invitation from the user panel
+			writeJSON(w, http.StatusCreated, map[string]any{"user": u, "inviteError": msgFor(a.langFor(r), err)})
+			return
+		}
+		a.event(r, "invite_sent", reqUser(r).Username, "", u.Username)
+	}
 	writeJSON(w, http.StatusCreated, u)
 }
 

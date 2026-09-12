@@ -24,6 +24,7 @@
       </label>
       <button class="btn-primary" type="submit">{{.T "admin.signin"}}</button>
       <label class="check"><input type="checkbox" name="remember" value="1"><span class="box"></span>{{.T "login.rememberDevice"}}</label>
+      {{if .CanReset}}<div class="links"><span></span><a href="/reset">{{.T "login.forgot"}}</a></div>{{end}}
     </form>
     {{template "oauth" .}}
     <div class="split-foot">{{.T "admin.foot"}} · Wicket {{.Version}}</div>

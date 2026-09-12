@@ -216,5 +216,104 @@ st, _, body, _ = api("GET", "/api/integrations")
 integ = json.loads(body)
 check("integration snippets", "forwardAuth" in integ.get("traefik", "") and "auth_request" in integ.get("nginx", ""))
 
+# ------------------------------------------------------------------ password reset + invitations (fake SMTP server)
+import email, quopri, socketserver, threading
+
+MAILS = []
+
+
+class SMTPHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.wfile.write(b"220 fake ESMTP\r\n")
+        data, in_data = [], False
+        while True:
+            line = self.rfile.readline()
+            if not line:
+                return
+            if in_data:
+                if line in (b".\r\n", b".\n"):
+                    MAILS.append(b"".join(data).decode("utf-8", "replace"))
+                    data, in_data = [], False
+                    self.wfile.write(b"250 queued\r\n")
+                else:
+                    data.append(line[1:] if line.startswith(b"..") else line)
+                continue
+            cmd = line.strip().upper()
+            if cmd.startswith(b"EHLO") or cmd.startswith(b"HELO"):
+                self.wfile.write(b"250-fake\r\n250 8BITMIME\r\n")
+            elif cmd.startswith(b"DATA"):
+                in_data = True
+                self.wfile.write(b"354 go ahead\r\n")
+            elif cmd.startswith(b"QUIT"):
+                self.wfile.write(b"221 bye\r\n")
+                return
+            else:
+                self.wfile.write(b"250 ok\r\n")
+
+
+smtp = socketserver.ThreadingTCPServer(("127.0.0.1", 0), SMTPHandler)
+smtp.daemon_threads = True
+threading.Thread(target=smtp.serve_forever, daemon=True).start()
+SMTP_PORT = smtp.server_address[1]
+
+
+def wait_mail(n, timeout=5):
+    end = time.time() + timeout
+    while time.time() < end and len(MAILS) < n:
+        time.sleep(0.1)
+    return MAILS[n - 1] if len(MAILS) >= n else ""
+
+
+def mail_link(raw, kind):
+    msg = email.message_from_string(raw)
+    for part in msg.walk():
+        if part.get_content_type() == "text/plain":
+            text = quopri.decodestring(part.get_payload()).decode("utf-8")
+            m = re.search(r"https://login\.localtest\.me/" + kind + r"/[A-Za-z0-9_-]+", text)
+            if m:
+                return m.group(0).replace("https://login.localtest.me", LOGIN), msg
+    return "", msg
+
+
+st, _, body, _ = api("PUT", "/api/mail", {"host": "127.0.0.1", "port": SMTP_PORT, "security": "none", "from": "wicket@localtest.me", "fromName": "Wicket"})
+check("local mail server configured", st == 200, body)
+st, _, body, _ = api("POST", "/api/mail/test", {"to": "boss@example.com"})
+check("test mail sent", st == 200 and "Wicket" in wait_mail(1), body)
+st, _, html, _ = req(client()[0], "GET", LOGIN + "/")
+check("login page offers password reset", "/reset" in html)
+
+rs, _ = client(follow=False)
+st, _, html, _ = req(rs, "GET", LOGIN + "/reset")
+st, _, html, _ = req(rs, "POST", LOGIN + "/reset", {"csrf": csrf(html), "login": "anna@example.com"})
+check("reset request answered", st == 200)
+link, msg = mail_link(wait_mail(2), "reset")
+check("reset mail with link", link and msg["To"] == "anna@example.com", msg["Subject"])
+st, _, html, _ = req(rs, "GET", link)
+check("reset form", st == 200 and 'name="password2"' in html)
+st, _, html, _ = req(rs, "POST", link, {"csrf": csrf(html), "password": "anna-neues-pw-99", "password2": "anna-neues-pw-99"})
+check("new password saved", st == 200)
+st, _, _, _ = req(rs, "GET", link)
+check("reset link works only once", st == 410)
+_, _, st_old = signin("anna", "anna-passwort-123")
+_, _, st_new = signin("anna", "anna-neues-pw-99")
+check("old password rejected, new accepted", st_old == 401 and st_new == 303, (st_old, st_new))
+count = len(MAILS)
+st, _, html, _ = req(rs, "GET", LOGIN + "/reset")
+st, _, html, _ = req(rs, "POST", LOGIN + "/reset", {"csrf": csrf(html), "login": "nobody"})
+time.sleep(1)
+check("unknown user gets the same answer and no mail", st == 200 and len(MAILS) == count)
+
+st, _, body, _ = api("POST", "/api/users", {"username": "carla", "email": "carla@example.com", "role": "user", "invite": True})
+check("user created with invitation", st == 201, body[:120])
+link, msg = mail_link(wait_mail(count + 1), "invite")
+check("invitation mail", link and msg["To"] == "carla@example.com", msg["Subject"])
+st, _, html, _ = req(rs, "GET", link)
+st, _, html, _ = req(rs, "POST", link, {"csrf": csrf(html), "password": "carla-passwort-1", "password2": "carla-passwort-1"})
+_, _, st = signin("carla", "carla-passwort-1")
+check("invited user signs in with chosen password", st == 303)
+st, _, body, _ = api("POST", f"/api/users/{ben}/reset-link", {})
+check("reset link needs an email address", st == 400 and "email" in body.lower(), body)
+smtp.shutdown()
+
 print(f"\n{sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

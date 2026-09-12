@@ -11,6 +11,7 @@
       <input class="field" type="password" name="password" placeholder="{{.T "login.password"}}" autocomplete="current-password" required {{if .Username}}autofocus{{end}}>
       <button class="btn-primary" {{if .Preview}}type="button"{{else}}type="submit"{{end}}>{{.T "login.continue"}}</button>
       <label class="check"><input type="checkbox" name="remember" value="1" checked><span class="box"></span>{{.T "login.remember"}}<span class="dim right">{{.T "login.days" .RememberDays}}</span></label>
+      {{if .CanReset}}<div class="links"><span></span><a href="/reset?rd={{.RD}}">{{.T "login.forgot"}}</a></div>{{end}}
     </form>
     {{template "oauth" .}}
 {{template "shell-close" .}}

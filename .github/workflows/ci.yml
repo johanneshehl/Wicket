@@ -34,6 +34,16 @@ jobs:
           CODE=$(grep -o 'setup code: [a-z0-9-]*' /tmp/wicket.log | awk '{print $3}')
           python3 scripts/e2e_test.py 9092 "$CODE"
 
+      - name: End-to-end test (groups, IP rules, OIDC, roles, mail, notifications)
+        run: |
+          mkdir -p /tmp/wicket-data2
+          WICKET_LISTEN=127.0.0.1:9094 WICKET_AUTH_ADDR=127.0.0.1:9094 \
+          WICKET_DATA=/tmp/wicket-data2 WICKET_CADDY_DIR=/nonexistent WICKET_DOCKER_HOST= \
+            ./wicket > /tmp/wicket2.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:9094/healthz && break; sleep 1; done
+          CODE=$(grep -o 'setup code: [a-z0-9-]*' /tmp/wicket2.log | awk '{print $3}')
+          python3 scripts/e2e_features.py 9094 "$CODE"
+
       - name: Server log
         if: failure()
-        run: cat /tmp/wicket.log
+        run: cat /tmp/wicket.log /tmp/wicket2.log
