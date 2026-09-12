@@ -4,14 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>{{.Title}} · Wicket</title>
-<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<title>{{.Title}} · {{if and .Brand.Name (ne .Brand.Name "wicket")}}{{.Brand.Name}}{{else}}Wicket{{end}}</title>
+{{if .Brand.Logo}}<link rel="icon" href="{{.Brand.Logo}}">{{else}}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">{{end}}
 <link rel="stylesheet" href="/static/wicket.css">
+{{with .Brand.AccentCSS}}<style>{{.}}</style>{{end}}
 </head>{{end}}
+
+{{/* Logo on login pages: the uploaded logo, or the Wicket mark. */}}
+{{define "brand-mark"}}{{if .Brand.Logo}}<img class="brand-logo" src="{{.Brand.Logo}}" alt="{{.Brand.Name}}">{{else}}{{template "logo" 40}}{{end}}{{end}}
+{{define "brand-small"}}{{if .Brand.Logo}}<img class="brand-logo sm" src="{{.Brand.Logo}}" alt="">{{else}}{{template "logo" 22}}{{end}}<span>{{or .Brand.Name "wicket"}}</span>{{end}}
 
 {{define "logo"}}<svg class="logo" width="{{.}}" height="{{.}}" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" stroke-width="1.5"/><path d="M9 21v-7a3 3 0 016 0v7" stroke="currentColor" stroke-width="1.5"/></svg>{{end}}
 
-{{define "footer"}}<footer class="protected">{{template "logo" 12}}<span>{{.T "footer.protected"}}</span></footer>{{end}}
+{{define "footer"}}{{if not .Brand.HideFooter}}<footer class="protected">{{if .Brand.Footer}}<span>{{.Brand.Footer}}</span>{{else}}{{template "logo" 12}}<span>{{.T "footer.protected"}}</span>{{end}}</footer>{{end}}{{end}}
 
 {{define "steps"}}<div class="steps">
   <div class="s"><span class="n done"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>{{.T "steps.password"}}</div>
@@ -49,7 +54,7 @@
 {{if eq .Tpl "split"}}
 <div class="tpl-split-wrap">
   <section class="tpl-art">
-    <div class="tpl-protected">{{template "logo" 16}}<span>{{.T "footer.protected"}}</span></div>
+    <div class="tpl-protected">{{if .Brand.Logo}}<img class="brand-logo sm" src="{{.Brand.Logo}}" alt=""><span>{{.Brand.Name}}</span>{{else if .Brand.Footer}}{{template "logo" 16}}<span>{{.Brand.Footer}}</span>{{else}}{{template "logo" 16}}<span>{{.T "footer.protected"}}</span>{{end}}</div>
     <div class="tpl-art-foot">
       {{if .Target}}<div class="tpl-fav">{{.TargetInitial}}</div><div class="tpl-to">{{.T "tpl.headingTo"}}</div>{{end}}
       <div class="tpl-bigname">{{.TargetName}}{{if .TargetRest}}<br><span>{{.TargetRest}}</span>{{end}}</div>
@@ -60,7 +65,7 @@
 {{else if eq .Tpl "dock"}}
 <div class="tpl-dock-wrap">
   <main class="tpl-dock-panel">
-    <div class="brand">{{template "logo" 20}}<span>wicket</span></div>
+    <div class="brand">{{template "brand-small" .}}</div>
     <div class="stack {{.StackClass}}">
 {{else}}
 <main class="center"><div class="stack {{.StackClass}}">

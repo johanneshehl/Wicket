@@ -45,7 +45,7 @@ def req(opener, method, url, data=None, headers=None, json_body=None):
     r = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
         resp = opener.open(r, timeout=15)
-        return resp.status, resp.headers, resp.read().decode(), resp.geturl()
+        return resp.status, resp.headers, resp.read().decode(errors="replace"), resp.geturl()
     except urllib.error.HTTPError as e:
         return e.code, e.headers, e.read().decode(), url
 
@@ -333,6 +333,32 @@ st, _, body, _ = req(client(follow=False)[0], "POST", LOGIN + "/passkey/register
 check("registration needs a session", st == 401)
 st, _, body, _ = api("GET", "/api/me/passkeys")
 check("passkey list for the admin", st == 200 and json.loads(body)["passkeys"] == [])
+
+# ------------------------------------------------------------------ branding
+pub, _ = client(follow=False)
+st, _, html, _ = req(pub, "GET", LOGIN + "/")
+check("default look: Wicket name and footer", "· Wicket</title>" in html and "brand-logo" not in html and "<style>" not in html)
+st, _, body, _ = api("PUT", "/api/branding", {"name": "Acme", "accent": "#zz0000"})
+check("invalid accent rejected", st == 400)
+st, _, body, _ = api("PUT", "/api/branding", {"name": "Acme", "logo": "data:text/html;base64,PGI+"})
+check("non-image logo rejected", st == 400)
+svg = base64.b64encode(b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>').decode()
+st, _, body, _ = api("PUT", "/api/branding", {"name": "Acme", "logo": "data:image/svg+xml;base64," + svg})
+check("SVG logo with a handler rejected", st == 400)
+logo = base64.b64encode(bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000")).decode()
+st, _, body, _ = api("PUT", "/api/branding", {"name": "Acme", "accent": "#0070F3", "footer": "Acme IT", "logo": "data:image/png;base64," + logo})
+b = json.loads(body) if st == 200 else {}
+check("branding saved", st == 200 and b.get("accent") == "#0070F3" and b.get("logo", "").startswith("/branding/logo?v="), body[:160])
+st, _, html, _ = req(pub, "GET", LOGIN + "/")
+check("login page uses the branding", "· Acme</title>" in html and 'class="brand-logo"' in html and "background:#0070f3;color:#fff" in html and "Acme IT" in html, html[:200])
+lo, _ = client(follow=False)
+st, hdr, data, _ = req(lo, "GET", LOGIN + b.get("logo", "/branding/logo"))
+check("logo served as an image", st == 200 and "image/png" in str(hdr.get("Content-Type", "")), (st, hdr.get("Content-Type") if hdr else None))
+st, _, body, _ = api("PUT", "/api/branding", {"name": "", "accent": "", "footer": "", "hideFooter": True, "logo": ""})
+st2, _, _, _ = req(lo, "GET", LOGIN + "/branding/logo")
+st, _, html, _ = req(pub, "GET", LOGIN + "/")
+check("branding reset, footer hidden", st2 == 404 and "· Wicket</title>" in html and 'class="protected"' not in html)
+api("PUT", "/api/branding", {"hideFooter": False})
 
 print(f"\n{sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

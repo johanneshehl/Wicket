@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"math/big"
 	"strings"
 	"testing"
@@ -27,6 +28,36 @@ func TestIPRules(t *testing.T) {
 		if ipMatch(got, ip) != want {
 			t.Fatalf("ipMatch(%s) = %v, want %v", ip, !want, want)
 		}
+	}
+}
+
+func TestBranding(t *testing.T) {
+	if contrastText("#ffffff") != "#000" || contrastText("#000000") != "#fff" || contrastText("#0070f3") != "#fff" || contrastText("#f5a623") != "#000" {
+		t.Fatal("contrastText picks the wrong text colour")
+	}
+	v := Branding{Accent: "#0070F3"}.view()
+	if v.Name != "wicket" || v.Accent != "#0070f3" || !strings.Contains(string(v.AccentCSS()), "background:#0070f3;color:#fff") {
+		t.Fatalf("view: %+v", v)
+	}
+	if (Branding{Accent: "red;}"}).view().AccentCSS() != "" {
+		t.Fatal("invalid accent must not reach the CSS")
+	}
+	png := "data:image/png;base64,iVBORw0KGgo="
+	if typ, data, err := parseLogo(png); err != nil || typ != "image/png" || len(data) != 8 {
+		t.Fatalf("parseLogo png: %v %s %d", err, typ, len(data))
+	}
+	svg := func(s string) string { return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(s)) }
+	if _, _, err := parseLogo(svg(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4"/></svg>`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{svg(`<svg><script>alert(1)</script></svg>`), svg(`<svg onload="x()"/>`), "data:text/html;base64,PGI+", "not a uri"} {
+		if _, _, err := parseLogo(bad); err == nil {
+			t.Fatalf("%q should be rejected", bad)
+		}
+	}
+	big := "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, maxLogoBytes+1))
+	if _, _, err := parseLogo(big); err == nil {
+		t.Fatal("oversized logo accepted")
 	}
 }
 

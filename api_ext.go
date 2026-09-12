@@ -38,6 +38,9 @@ func (a *App) registerExtAPI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/notify", a.apiNotifyGet)
 	mux.HandleFunc("PUT /api/notify", a.apiNotifyPut)
 	mux.HandleFunc("POST /api/notify/test", a.apiNotifyTest)
+
+	mux.HandleFunc("GET /api/branding", a.apiBrandingGet)
+	mux.HandleFunc("PUT /api/branding", a.apiBrandingPut)
 }
 
 // ---------------------------------------------------------------- groups

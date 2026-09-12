@@ -34,6 +34,7 @@ type page struct {
 	CookieDomain, LoginHost, AdminHost, ImportLine                                             string
 	Token, Info                                                                                string // reset / invitation links
 	CanReset                                                                                   bool   // a mail server is configured
+	Brand                                                                                      brandView
 }
 
 var (
@@ -56,6 +57,7 @@ func (a *App) basePage(w http.ResponseWriter, r *http.Request, titleKey string) 
 	p.Title = p.T(titleKey)
 	p.Providers = a.oauthButtons()
 	p.CanReset = a.mailEnabled()
+	p.Brand = a.branding().view()
 	if !p.Admin {
 		p.Tpl = s.LoginTemplate
 	}

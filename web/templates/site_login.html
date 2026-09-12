@@ -1,6 +1,6 @@
 {{template "head" .}}
 {{template "shell-open" .}}
-    <span class="mark">{{template "logo" 40}}</span>
+    <span class="mark">{{template "brand-mark" .}}</span>
     <h1>{{.T "title.signin"}}</h1>
     {{if .Target}}<div class="pill"><span class="fav">{{.TargetInitial}}</span><span>{{.T "login.continueTo"}}</span><b>{{.Target}}</b></div>{{end}}
     <form class="form" method="post" action="/login" data-once>

@@ -1,7 +1,7 @@
 {{template "head" .}}
 <body class="split">
 <section class="split-art">
-  <div class="brand">{{template "logo" 22}}<span>wicket</span></div>
+  <div class="brand">{{template "brand-small" .}}</div>
   <div class="claim">
     <h2>{{.T "admin.claim1"}}<br>{{.T "admin.claim2"}}</h2>
     <p>{{if .Domain}}{{.T "admin.claimSub" .Domain}}{{else}}{{.T "admin.claimSubPlain"}}{{end}}</p>

@@ -153,6 +153,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /verify", a.handleVerify)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
+	mux.HandleFunc("GET /branding/logo", a.handleBrandLogo)
 
 	mux.HandleFunc("GET /{$}", a.handleRoot)
 	mux.HandleFunc("GET /login", a.handleLoginPage)

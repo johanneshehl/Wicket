@@ -34,7 +34,7 @@ jobs:
           CODE=$(grep -o 'setup code: [a-z0-9-]*' /tmp/wicket.log | awk '{print $3}')
           python3 scripts/e2e_test.py 9092 "$CODE"
 
-      - name: End-to-end test (groups, IP rules, OIDC, roles, mail, notifications)
+      - name: End-to-end test (groups, IP rules, OIDC, roles, mail, passkeys, branding)
         run: |
           mkdir -p /tmp/wicket-data2
           WICKET_LISTEN=127.0.0.1:9094 WICKET_AUTH_ADDR=127.0.0.1:9094 \
