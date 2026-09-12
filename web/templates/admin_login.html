@@ -27,9 +27,11 @@
       {{if .CanReset}}<div class="links"><span></span><a href="/reset">{{.T "login.forgot"}}</a></div>{{end}}
     </form>
     {{template "oauth" .}}
+    {{template "passkey-login" .}}
     <div class="split-foot">{{.T "admin.foot"}} · Wicket {{.Version}}</div>
   </div>
 </section>
 <script src="/static/auth.js"></script>
+<script src="/static/passkey.js"></script>
 </body>
 </html>

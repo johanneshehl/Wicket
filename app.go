@@ -177,6 +177,11 @@ func (a *App) Routes() http.Handler {
 	inviteGet, invitePost := a.tokenPage("invite")
 	mux.HandleFunc("GET /invite/{token}", inviteGet)
 	mux.HandleFunc("POST /invite/{token}", invitePost)
+	// passkeys (JSON endpoints used by passkey.js)
+	mux.HandleFunc("POST /passkey/register/begin", a.handlePasskeyRegisterBegin)
+	mux.HandleFunc("POST /passkey/register/finish", a.handlePasskeyRegisterFinish)
+	mux.HandleFunc("POST /passkey/login/begin", a.handlePasskeyLoginBegin)
+	mux.HandleFunc("POST /passkey/login/finish", a.handlePasskeyLoginFinish)
 	// Wicket as OpenID Connect provider for other applications
 	mux.HandleFunc("GET /.well-known/openid-configuration", a.handleOIDCDiscovery)
 	mux.HandleFunc("GET /oidc/jwks", a.handleOIDCJWKS)
@@ -391,7 +396,8 @@ func checkCSRF(r *http.Request) bool {
 
 // needs2FASetup: user must enroll TOTP before continuing.
 func (a *App) needs2FASetup(u *User, site *Site) bool {
-	if u.TOTPEnabled {
+	// a passkey is a second factor on its own
+	if u.TOTPEnabled || a.store.HasPasskeys(u.ID) {
 		return false
 	}
 	if a.settings().EnforceAdmin2FA && canAdmin(u) {

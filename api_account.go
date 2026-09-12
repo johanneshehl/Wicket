@@ -1,6 +1,18 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"strconv"
+)
+
+// pathID2 reads a second numeric path value, e.g. {pid}.
+func pathID2(r *http.Request, name string) (int64, error) {
+	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
+	if err != nil {
+		return 0, userErr("err.badID")
+	}
+	return id, nil
+}
 
 // Admin actions that e-mail a link to a user.
 

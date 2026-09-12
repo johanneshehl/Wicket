@@ -16,5 +16,7 @@
     <h1>{{.T "title.signedin"}}</h1>
     <p class="lead">{{.TB "notice.signedIn" .Username}}</p>
     <div class="btn-row"><a class="btn-ghost" href="/setup-2fa">{{.T "notice.setup2fa"}}</a><a class="btn-light" href="/logout">{{.T "notice.signout"}}</a></div>
+    <div class="btn-row">{{template "passkey-register" .}}</div>
+    <div class="info" data-passkey-status hidden></div>
   {{end}}
 {{template "shell-close" .}}

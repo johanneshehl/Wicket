@@ -14,6 +14,11 @@ func (a *App) registerExtAPI(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/groups/{id}", a.apiGroupUpdate)
 	mux.HandleFunc("DELETE /api/groups/{id}", a.apiGroupDelete)
 
+	mux.HandleFunc("GET /api/me/passkeys", a.apiMyPasskeys)
+	mux.HandleFunc("DELETE /api/me/passkeys/{id}", a.apiMyPasskeyDelete)
+	mux.HandleFunc("GET /api/users/{id}/passkeys", a.apiUserPasskeys)
+	mux.HandleFunc("DELETE /api/users/{id}/passkeys/{pid}", a.apiUserPasskeyDelete)
+
 	mux.HandleFunc("POST /api/users/{id}/invite", a.apiUserInvite)
 	mux.HandleFunc("POST /api/users/{id}/reset-link", a.apiUserResetLink)
 
