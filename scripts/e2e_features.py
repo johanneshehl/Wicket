@@ -360,5 +360,13 @@ st, _, html, _ = req(pub, "GET", LOGIN + "/")
 check("branding reset, footer hidden", st2 == 404 and "· Wicket</title>" in html and 'class="protected"' not in html)
 api("PUT", "/api/branding", {"hideFooter": False})
 
+# ------------------------------------------------------------------ admin UI assets
+st, _, html, _ = req(pub, "GET", ADMIN + "/static/admin.html")
+order = [html.find(s) for s in ("i18n.js", "i18n_ext.js", "passkey.js", "admin.js", "admin_ext.js")]
+check("admin page loads the extension scripts in order", st == 200 and -1 not in order and order == sorted(order), order)
+st, _, js, _ = req(pub, "GET", ADMIN + "/static/admin_ext.js")
+st2, _, js2, _ = req(pub, "GET", ADMIN + "/static/i18n_ext.js")
+check("extension scripts served", st == 200 and "window.WX" in js and st2 == 200 and "'nav.groups'" in js2)
+
 print(f"\n{sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

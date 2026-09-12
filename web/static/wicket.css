@@ -28,6 +28,16 @@ code { font-family: var(--mono); font-size: .92em; background: var(--hover); pad
 .brand-logo { display: block; height: 40px; width: auto; max-width: 180px; object-fit: contain; flex-shrink: 0; }
 .brand-logo.sm { height: 22px; max-width: 120px; }
 
+/* admin additions for groups, notifications, OIDC apps and branding */
+textarea.input { height: auto; min-height: 60px; padding: 8px 10px; resize: vertical; font: 12px/1.6 var(--mono); }
+.wx-list { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.wx-item { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.wx-events { display: flex; flex-wrap: wrap; gap: 10px 20px; margin-top: 14px; }
+.wx-groups-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 24px; }
+.wx-logo-box { display: flex; align-items: center; min-width: 60px; }
+.wx-logo { display: block; height: 32px; max-width: 140px; object-fit: contain; }
+.wx-color { width: 44px; padding: 3px; flex-shrink: 0; cursor: pointer; }
+
 /* ------------------------------------------------------------ auth pages */
 .auth { min-height: 100vh; display: flex; flex-direction: column; }
 .dots { background-color: #000; background-image: radial-gradient(#1c1c1c 1px, transparent 1px); background-size: 24px 24px; }

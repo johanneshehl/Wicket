@@ -366,6 +366,7 @@ async function siteDialog(site) {
       d.users = $$('[data-userlist] input:checked', form).map((i) => Number(i.value));
       const chipInput = $('[data-chips] input', form);
       if (chipInput.value.trim()) { d.bypass.push(chipInput.value.trim()); chipInput.value = ''; }
+      window.WX?.siteCollect(d, form);
       const saved = edit ? await api('PUT', `/api/sites/${site.id}`, d) : await api('POST', '/api/sites', d);
       toast(edit ? t('common.saved') : t('toast.protected', saved.domain));
       refresh();
@@ -447,6 +448,7 @@ async function siteDialog(site) {
   drawChips();
   update();
   if (d.domain) checkDNS();
+  window.WX?.siteMount(form, d);
 }
 
 async function toggleSite(id) {
@@ -465,7 +467,7 @@ function userRow(u) {
   return `<div class="tr users-grid clickable ${u.id === state.userSel ? 'sel' : ''}" data-user="${u.id}">
     <div class="cell-user"><span class="uavatar ${u.id === state.meId ? 'me' : ''}">${esc(u.username[0].toUpperCase())}</span>
       <div class="grow"><div class="strong ${u.disabled ? 'muted' : ''}">${esc(u.username)}${u.disabled ? ` <span class="tag dim">${t('u.disabled')}</span>` : ''}</div><div class="small dim">${esc(u.email || (u.id === state.meId ? t('u.thatsYou') : '–'))}</div></div></div>
-    <div>${u.role === 'admin' ? `<span class="tag">${t('role.admin')}</span>` : `<span class="muted small">${t('role.user')}</span>`}</div>
+    <div>${u.role === 'user' ? `<span class="muted small">${t('role.user')}</span>` : `<span class="tag">${t('role.' + u.role)}</span>`}</div>
     <div>${u.totpEnabled ? `<span class="status ok-t"><i></i>${t('u.active')}</span>` : `<span class="status missing warn-t"><i></i>${t('u.missing')}</span>`}</div>
     <div class="muted small">${u.id === state.meId ? t('time.justNow') : ago(u.lastSeen)}</div>
   </div>`;
@@ -500,12 +502,13 @@ async function drawUserDetail() {
   if (!u || !box) return;
   const { sessions } = await api('GET', `/api/users/${u.id}/sessions`);
   const sites = state.sitesData || [];
-  const reach = u.role === 'admin' ? sites.length : sites.filter((s) => s.access === 'all' || (s.access === 'users' && s.users.includes(u.id))).length;
+  const inGroup = (s) => (s.groups || []).some((g) => (u.groups || []).includes(g));
+  const reach = u.role === 'admin' ? sites.length : sites.filter((s) => s.access === 'all' || (s.access === 'users' && (s.users.includes(u.id) || inGroup(s)))).length;
   const self = u.id === state.meId;
   const since = new Date(u.createdAt * 1000).toLocaleDateString(LOCALES[LANG]);
   box.innerHTML = `
     <div class="row gap8" style="gap:12px"><span class="uavatar lg ${self ? 'me' : ''}">${esc(u.username[0].toUpperCase())}</span>
-      <div class="grow"><div class="strong" style="font-size:16px">${esc(u.username)}</div><div class="small muted">${t('detail.since', u.role === 'admin' ? t('role.admin') : t('role.user'), since)}</div></div>
+      <div class="grow"><div class="strong" style="font-size:16px">${esc(u.username)}</div><div class="small muted">${t('detail.since', t('role.' + u.role), since)}</div></div>
       <button class="btn sm" data-act="edit-user">${t('common.edit')}</button></div>
     <div>
       <div class="kv"><span>${t('detail.access')}</span><span>${u.role === 'admin' ? t('detail.allSites', t('n.sites', sites.length)) : t('n.sites', reach)}</span></div>
@@ -524,6 +527,7 @@ async function drawUserDetail() {
       <button class="btn sm danger" data-act="user-logout">${t('detail.logoutAll')}</button>
       ${self ? '' : `<button class="btn sm danger" data-act="user-delete">${t('common.delete')}</button>`}
     </div>`;
+  window.WX?.userDetail(box, u, self);
 }
 
 function userDialog(u) {
@@ -538,26 +542,32 @@ function userDialog(u) {
       <div class="grid2">
         <div class="fg"><div class="lbl">${t('f.role')}</div><select class="input" name="role">
           <option value="user" ${u?.role === 'user' ? 'selected' : ''}>${t('role.user')}</option>
+          <option value="auditor" ${u?.role === 'auditor' ? 'selected' : ''}>${t('role.auditor')}</option>
           <option value="admin" ${u?.role === 'admin' ? 'selected' : ''}>${t('role.admin')}</option></select></div>
         ${edit ? `<div class="fg"><div class="lbl">${t('f.status')}</div><select class="input" name="disabled"><option value="0">${t('f.statusActive')}</option><option value="1" ${u.disabled ? 'selected' : ''}>${t('f.statusDisabled')}</option></select></div>` : ''}
       </div>
-      ${edit ? '' : `<div class="fg"><div class="lbl">${t('f.password')} <span>${t('f.min10')}</span></div>
+      ${edit ? '' : `<div class="fg" data-pw><div class="lbl">${t('f.password')} <span>${t('f.min10')}</span></div>
         <div class="row gap8"><input class="input mono" name="password" autocomplete="new-password"><button type="button" class="btn" data-gen>${t('common.generate')}</button></div>
         <div class="dim small">${t('userDlg.pwHint')}</div></div>`}
       <div class="dim small">${t('userDlg.roleHint')}</div>`,
     onMount(form) {
       const g = $('[data-gen]', form);
       if (g) g.addEventListener('click', () => { $('[name=password]', form).value = genPassword(); });
+      window.WX?.userMount(form, u);
     },
     async onSubmit(form) {
       const val = (n) => $(`[name=${n}]`, form)?.value ?? '';
+      const ext = window.WX ? window.WX.userCollect(form) : {};
       if (edit) {
-        await api('PUT', `/api/users/${u.id}`, { email: val('email'), role: val('role'), disabled: val('disabled') === '1' });
+        await api('PUT', `/api/users/${u.id}`, { email: val('email'), role: val('role'), disabled: val('disabled') === '1', groups: ext.groups });
         toast(t('common.saved'));
       } else {
-        const created = await api('POST', '/api/users', { username: val('username').trim(), email: val('email'), role: val('role'), password: val('password') });
+        const res = await api('POST', '/api/users', { username: val('username').trim(), email: val('email'), role: val('role'), password: ext.invite ? '' : val('password'), invite: Boolean(ext.invite) });
+        const created = res.user || res;
+        if (ext.groups?.length) await api('PUT', `/api/users/${created.id}`, { email: created.email, role: created.role, disabled: false, groups: ext.groups });
         state.userSel = created.id;
-        toast(t('toast.created', created.username));
+        if (res.inviteError) toast(res.inviteError, 'err');
+        else toast(ext.invite ? t('wx.inviteSent', created.email) : t('toast.created', created.username));
         if (!location.hash.startsWith('#/users')) { location.hash = '#/users'; return; }
       }
       refresh();
@@ -972,6 +982,6 @@ document.addEventListener('click', async (e) => {
   const u = state.me.user;
   $('#domainLabel').textContent = state.me.domain || '';
   $('#avatarBtn').textContent = u.username[0].toUpperCase();
-  $('#menuHead').innerHTML = `<b>${esc(u.username)}</b><span>${u.role === 'admin' ? t('role.admin') : t('role.user')}</span>`;
+  $('#menuHead').innerHTML = `<b>${esc(u.username)}</b><span>${t('role.' + u.role)}</span>`;
   route();
 })();
