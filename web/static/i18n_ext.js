@@ -133,7 +133,7 @@
     'int.nginxHint': ['inside a server block; adjust proxy_pass', 'in einem server-Block; passe proxy_pass an', 'dentro de un bloque server; ajusta proxy_pass'],
     'int.metrics': ['Prometheus metrics', 'Prometheus-Metriken', 'Métricas de Prometheus'],
     'int.metricsOn': ['Available at {0} with the bearer token from WICKET_METRICS_TOKEN.', 'Unter {0} mit dem Bearer-Token aus WICKET_METRICS_TOKEN abrufbar.', 'Disponibles en {0} con el token bearer de WICKET_METRICS_TOKEN.'],
-    'int.metricsOff': ['Set {0} to enable /metrics.', 'Setze {0}, um /metrics zu aktivieren.', 'Define {0} para activar /metrics.'],
+    'int.metricsOff': ['Without {0}, /metrics only answers on Wicket\'s own address, not through the login or admin host.', 'Ohne {0} antwortet /metrics nur auf Wickets eigener Adresse, nicht über den Login- oder Admin-Host.', 'Sin {0}, /metrics solo responde en la dirección propia de Wicket, no a través del host de inicio de sesión ni del de administración.'],
     'int.docker': ['Docker containers as target', 'Docker-Container als Ziel', 'Contenedores Docker como destino'],
     'int.dockerOn': ['Containers can be picked as the target of a site.', 'Container können als Ziel einer Seite ausgewählt werden.', 'Los contenedores se pueden elegir como destino de un sitio.'],
     'int.dockerOff': ['Docker is not reachable. Mount /var/run/docker.sock read-only or set {0}.', 'Docker ist nicht erreichbar. Binde /var/run/docker.sock schreibgeschützt ein oder setze {0}.', 'Docker no es accesible. Monta /var/run/docker.sock en solo lectura o define {0}.'],

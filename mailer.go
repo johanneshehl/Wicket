@@ -30,11 +30,11 @@ func (c SMTPConfig) Configured() bool { return c.Host != "" && c.Port > 0 && c.F
 
 // Mail is one message with a plain-text and an optional HTML part.
 type Mail struct {
-	To       string
-	Subject  string
-	Text     string
-	HTML     string
-	ReplyTo  string
+	To      string
+	Subject string
+	Text    string
+	HTML    string
+	ReplyTo string
 }
 
 func validSMTP(c SMTPConfig) error {

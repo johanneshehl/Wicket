@@ -46,7 +46,9 @@ func TestBranding(t *testing.T) {
 	if typ, data, err := parseLogo(png); err != nil || typ != "image/png" || len(data) != 8 {
 		t.Fatalf("parseLogo png: %v %s %d", err, typ, len(data))
 	}
-	svg := func(s string) string { return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(s)) }
+	svg := func(s string) string {
+		return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(s))
+	}
 	if _, _, err := parseLogo(svg(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4"/></svg>`)); err != nil {
 		t.Fatal(err)
 	}

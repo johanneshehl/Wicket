@@ -96,7 +96,7 @@ func deliver(c NotifyChannel, smtpCfg SMTPConfig, n Notification) error {
 		payload := map[string]any{
 			"event": n.Event, "title": n.Title, "message": n.Message, "link": n.Link,
 			"time":    time.Now().UTC().Format(time.RFC3339),
-			"text":    "*" + n.Title + "*\n" + text, // Slack, Mattermost
+			"text":    "*" + n.Title + "*\n" + text,   // Slack, Mattermost
 			"content": "**" + n.Title + "**\n" + text, // Discord
 		}
 		body, _ := json.Marshal(payload)

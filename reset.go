@@ -12,9 +12,9 @@ import (
 // configured mail server both flows are switched off.
 
 const (
-	resetTTL       = 3600       // link from "forgot password"
-	adminResetTTL  = 24 * 3600  // link an admin sends
-	inviteTTL      = 7 * 86400
+	resetTTL      = 3600      // link from "forgot password"
+	adminResetTTL = 24 * 3600 // link an admin sends
+	inviteTTL     = 7 * 86400
 )
 
 func (a *App) loginHome(p *page) string {
