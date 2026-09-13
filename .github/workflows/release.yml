@@ -50,10 +50,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # "[required]" or "[min-version 1.4.0]" in the tag message marks the release for the update check
+      - id: flags
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          msg="$(git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format='%(contents)')"
+          if echo "$msg" | grep -qi '\[required\]'; then
+            echo "required=<!-- wicket:required -->" >> "$GITHUB_OUTPUT"
+            echo "notice=**Required update.** Older versions lock their admin interface until they are updated." >> "$GITHUB_OUTPUT"
+          fi
+          min="$(echo "$msg" | grep -oiE '\[min-version v?[0-9]+\.[0-9]+\.[0-9]+\]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          if [ -n "$min" ]; then
+            echo "min=<!-- wicket:min-version $min -->" >> "$GITHUB_OUTPUT"
+            echo "minnotice=**Versions below $min must update.** Their admin interface is locked until then." >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           body: |
+            ${{ steps.flags.outputs.required }}
+            ${{ steps.flags.outputs.min }}
+            ${{ steps.flags.outputs.notice }}
+            ${{ steps.flags.outputs.minnotice }}
+
             ## Docker image
 
             ```

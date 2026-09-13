@@ -368,5 +368,76 @@ st, _, js, _ = req(pub, "GET", ADMIN + "/static/admin_ext.js")
 st2, _, js2, _ = req(pub, "GET", ADMIN + "/static/i18n_ext.js")
 check("extension scripts served", st == 200 and "window.WX" in js and st2 == 200 and "'nav.groups'" in js2)
 
+# ------------------------------------------------------------------ updates (fake GitHub API and fake Watchtower on port 9099)
+import http.server
+UPD = {"releases": [
+    {"tag_name": "v1.4.0", "body": "New things <!-- a comment -->", "html_url": "https://example.com/v1.4.0", "published_at": "2026-09-20T10:00:00Z"},
+    {"tag_name": "v1.3.0", "body": "", "html_url": "https://example.com/v1.3.0"},
+], "hits": []}
+
+
+class FakeUpstream(http.server.BaseHTTPRequestHandler):
+    def reply(self, code, body=b""):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path.startswith("/repos/johanneshehl/Wicket/releases"):
+            self.reply(200, json.dumps(UPD["releases"]).encode())
+        elif self.path.startswith("/v1/update"):
+            self.do_POST()
+        else:
+            self.reply(404)
+
+    def do_POST(self):
+        UPD["hits"].append(self.headers.get("Authorization"))
+        self.reply(200)
+
+    def log_message(self, *args):
+        pass
+
+
+upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 9099), FakeUpstream)
+threading.Thread(target=upstream.serve_forever, daemon=True).start()
+
+st, _, body, _ = api("GET", "/api/update")
+u = json.loads(body) if st == 200 else {}
+check("update status before the first check", st == 200 and u.get("current") == "1.3.0" and u.get("method") == "watchtower" and not u.get("available"), body[:200])
+st, _, body, _ = api("POST", "/api/update/check", {})
+u = json.loads(body) if st == 200 else {}
+check("newer release found", u.get("available") and u.get("latest") == "1.4.0" and not u.get("locked") and u.get("notes") == "New things" and u.get("canApply"), body[:300])
+st, _, body, _ = api("POST", "/api/update/apply", {})
+r = json.loads(body) if st == 200 else {}
+check("update started with a database backup", st == 200 and r.get("run", {}).get("backup", "").startswith("wicket-before-1.4.0-"), body[:200])
+for _ in range(30):
+    if UPD["hits"]:
+        break
+    time.sleep(0.1)
+check("Watchtower called with the token", UPD["hits"] == ["Bearer e2e-token"], UPD["hits"])
+
+outcome = lambda v: (v[0], v[1].get("Location"))  # status and redirect of a forward_auth answer
+before = outcome(verify("upd-check.localtest.me", "/"))
+UPD["releases"].insert(0, {"tag_name": "v1.5.0", "body": "Security fix <!-- wicket:required -->", "html_url": "https://example.com/v1.5.0"})
+st, _, body, _ = api("POST", "/api/update/check", {})
+u = json.loads(body) if st == 200 else {}
+check("required release locks this version", u.get("locked") and u.get("minVersion") == "1.5.0", body[:200])
+st, _, body, _ = api("GET", "/api/sites")
+st2, _, _, _ = api("GET", "/api/me")
+check("admin API locked, own account still readable", st == 423 and "update_required" in body and st2 == 200, (st, st2))
+after = outcome(verify("upd-check.localtest.me", "/"))
+check("forward_auth not affected by the lock", after == before, (before, after))
+st, _, body, _ = api("PUT", "/api/update/config", {"check": False})
+check("check cannot be switched off while locked", st == 409)
+UPD["releases"].pop(0)
+st, _, body, _ = api("POST", "/api/update/check", {})
+st2, _, _, _ = api("GET", "/api/sites")
+check("lock lifted when the required release is gone", not json.loads(body).get("locked") and st2 == 200)
+st, _, body, _ = api("PUT", "/api/update/config", {"check": False})
+check("automatic check can be switched off", st == 200 and json.loads(body).get("check") is False)
+api("PUT", "/api/update/config", {"check": True})
+upstream.shutdown()
+
 print(f"\n{sum(results)}/{len(results)} passed")
 sys.exit(0 if all(results) else 1)

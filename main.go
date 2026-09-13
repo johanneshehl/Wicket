@@ -31,6 +31,11 @@ type Config struct {
 	Caddyfile    string
 	MetricsToken string // bearer token for /metrics; empty = only reachable locally
 	DockerHost   string // unix:///var/run/docker.sock, tcp://host:2375 or empty to disable
+	UpdateCheck  bool   // WICKET_UPDATE_CHECK=off turns off the update check and the lock for required updates
+	UpdateAPI    string // GitHub API base URL
+	UpdateRepo   string // owner/name of the repository whose releases are checked
+	UpdateURL    string // Watchtower HTTP API endpoint that installs updates
+	UpdateToken  string // bearer token for UpdateURL
 }
 
 func env(key, fallback string) string {
@@ -53,6 +58,11 @@ func loadConfig() Config {
 		Caddyfile:    env("WICKET_CADDYFILE", "/etc/caddy/Caddyfile"),
 		MetricsToken: env("WICKET_METRICS_TOKEN", ""),
 		DockerHost:   env("WICKET_DOCKER_HOST", "unix:///var/run/docker.sock"),
+		UpdateCheck:  envOn(env("WICKET_UPDATE_CHECK", "on")),
+		UpdateAPI:    env("WICKET_UPDATE_API", "https://api.github.com"),
+		UpdateRepo:   env("WICKET_UPDATE_REPO", "johanneshehl/Wicket"),
+		UpdateURL:    env("WICKET_UPDATE_URL", ""),
+		UpdateToken:  env("WICKET_UPDATE_TOKEN", ""),
 	}
 }
 
@@ -82,6 +92,7 @@ func main() {
 		}
 	}()
 	go app.janitor()
+	go app.updateLoop()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

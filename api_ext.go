@@ -41,6 +41,11 @@ func (a *App) registerExtAPI(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/branding", a.apiBrandingGet)
 	mux.HandleFunc("PUT /api/branding", a.apiBrandingPut)
+
+	mux.HandleFunc("GET /api/update", a.apiUpdateGet)
+	mux.HandleFunc("POST /api/update/check", a.apiUpdateCheck)
+	mux.HandleFunc("PUT /api/update/config", a.apiUpdateConfig)
+	mux.HandleFunc("POST /api/update/apply", a.apiUpdateApply)
 }
 
 // ---------------------------------------------------------------- groups

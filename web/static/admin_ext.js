@@ -444,7 +444,7 @@
 
   // ---------------------------------------------------------------- settings: one tab per section, search across all tabs
 
-  const EXT_SECTIONS = ['mail', 'notify', 'oidc', 'integrations'];
+  const EXT_SECTIONS = ['mail', 'notify', 'oidc', 'integrations', 'updates'];
   SECTIONS.splice(SECTIONS.indexOf('caddy'), 0, ...EXT_SECTIONS);
 
   // card id -> [tab, text keys]. The wording of these keys in every language makes the card findable,
@@ -459,6 +459,7 @@
     notify: ['notify', ['ntf.']],
     oidc: ['oidc', ['oidc.']],
     integrations: ['integrations', ['int.']],
+    updates: ['updates', ['upd.']],
     caddy: ['caddy', ['set.caddy', 'set.adminApi', 'set.snippetDir', 'chk.', 'set.addLine', 'set.ownBlocks']],
     account: ['account', ['set.signedInAs', 'set.password', 'set.pwSub', 'set.2fa', 'set.codesLeft', 'set.newCodes', 'set.disable', 'set.setup', 'pk.', 'wx.passkeys']],
   };
@@ -589,13 +590,14 @@
 
   routes.settings = async (sub) => {
     await renderSettings(sub);
-    const [mail, ntf, oidc, integ, groups, ud, pk] = await Promise.all([
+    const [mail, ntf, oidc, integ, groups, ud, pk, up] = await Promise.all([
       api('GET', '/api/mail'), api('GET', '/api/notify'), api('GET', '/api/oidc'), api('GET', '/api/integrations'),
-      getGroups(), api('GET', '/api/users'), api('GET', '/api/me/passkeys'),
+      getGroups(), api('GET', '/api/users'), api('GET', '/api/me/passkeys'), api('GET', '/api/update'),
     ]);
     const anchor = document.getElementById('caddy');
     if (!anchor) return;
-    anchor.insertAdjacentHTML('beforebegin', mailCard(mail) + notifyCard(ntf) + oidcCard(oidc) + integrationsCard(integ));
+    anchor.insertAdjacentHTML('beforebegin', mailCard(mail) + notifyCard(ntf) + oidcCard(oidc) + integrationsCard(integ) + updatesCard(up));
+    wireUpdates(up);
     wireMail();
     wireNotify(ntf);
     $('#oidc').addEventListener('click', (e) => {
@@ -673,7 +675,157 @@
 
   routes.groups = renderGroups;
 
-  window.WX = { siteMount, siteCollect, userMount, userCollect, userDetail };
+  // ---------------------------------------------------------------- updates
+
+  const DISMISS_KEY = 'wicket.update.dismissed';
+  const local = {
+    get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
+  };
+  let forced = false; // a required update or a running update keeps the dialog open
+
+  document.addEventListener('keydown', (e) => { if (forced && e.key === 'Escape') e.stopImmediatePropagation(); }, true);
+
+  function markUpdate(u) {
+    $('#avatarBtn')?.classList.toggle('has-update', Boolean(u.available));
+    const menu = $('#userMenu');
+    if (!menu) return;
+    $('[data-upd-menu]', menu)?.remove();
+    if (u.available) $('#menuHead', menu).insertAdjacentHTML('afterend', `<a href="#/settings/updates" class="upd-menu" data-upd-menu>${t('upd.menu', esc(u.latest))}</a>`);
+  }
+
+  function manualBox() {
+    const cmd = 'docker compose pull\ndocker compose up -d';
+    return `<div class="fg"><div class="lbl">${t('upd.manualTitle')}</div>
+      <div class="code-box"><div class="code-head"><span>${t('upd.manualWhere')}</span><button type="button" class="link right" data-copy-text="${esc(cmd)}">${t('common.copy')}</button></div><pre>${esc(cmd)}</pre></div>
+      <div class="dim small">${t('upd.manualHint')}</div></div>`;
+  }
+
+  function updateDialog(u, required) {
+    forced = required;
+    dialog({
+      title: required ? t('upd.reqTitle') : t('upd.popTitle', esc(u.latest)),
+      lead: required ? t('upd.reqLead', esc(u.minVersion), esc(u.current)) : t('upd.popLead', esc(u.current)),
+      submit: u.canApply ? t('upd.now') : '',
+      width: 620,
+      body: `${u.notes ? fg(`${t('upd.notes')}${u.url ? ` <a class="link" href="${esc(u.url)}" target="_blank" rel="noopener">${t('upd.onGitHub')}</a>` : ''}`, `<div class="upd-notes">${esc(u.notes)}</div>`) : ''}
+        ${u.canApply ? `<div class="dim small">${t('upd.methodWatchtower')}</div>` : manualBox()}`,
+      onMount(form) {
+        wireCopy(form);
+        const close = $('[data-close]', form);
+        if (required) close?.remove();
+        else if (close) {
+          close.textContent = t('upd.later');
+          close.addEventListener('click', () => { local.set(DISMISS_KEY, u.latest); forced = false; });
+        }
+      },
+      async onSubmit(form) { await startUpdate(form, u); return true; },
+    });
+  }
+
+  async function startUpdate(form, u) {
+    const r = await api('POST', '/api/update/apply', {});
+    forced = true;
+    $('.dlg-foot', form).hidden = true;
+    $('.dlg-body', form).innerHTML = `<div class="upd-progress"><div class="spinner"></div><div class="grow">
+      <div class="strong">${t('upd.running', esc(r.run.target))}</div>
+      <div class="small muted" style="margin-top:4px">${t('upd.runningLead', code(r.run.backup))}</div>
+      <div class="small" data-upd-status style="margin-top:10px"></div></div></div>`;
+    const status = $('[data-upd-status]', form);
+    const started = Date.now();
+    const poll = async () => {
+      if (!form.isConnected) return;
+      try {
+        const res = await fetch('/api/update', { credentials: 'same-origin', headers: { 'X-Wicket': '1' } });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.current !== u.current) {
+            status.className = 'small ok-t';
+            status.textContent = t('upd.done', d.current);
+            setTimeout(() => location.reload(), 1500);
+            return;
+          }
+          if (d.run && d.run.finishedAt) {
+            status.className = 'small err-t';
+            status.textContent = d.run.error || t('upd.stuck');
+            forced = u.locked;
+            $('.dlg-foot', form).hidden = false;
+            $('[type=submit]', form)?.remove();
+            return;
+          }
+        }
+      } catch { /* Wicket is restarting */ }
+      if (Date.now() - started > 180000) { status.className = 'small warn-t'; status.textContent = t('upd.slow'); }
+      setTimeout(poll, 2000);
+    };
+    setTimeout(poll, 2500);
+  }
+
+  function updatesCard(u) {
+    const [cls, label] = u.envDisabled ? ['', t('upd.stOff')] : u.dev ? ['', t('upd.stDev')]
+      : u.locked ? ['warn', t('upd.stRequired')] : u.available ? ['warn', t('upd.stAvailable')] : ['ok', t('upd.stUpToDate')];
+    const row = (k, v) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`;
+    const watch = u.method === 'watchtower';
+    return `<div class="scard" id="updates"><div class="scard-body">
+      <h2>${t('upd.title')} <span class="badge ${cls}"><i></i>${label}</span></h2>
+      <p class="sub">${t('upd.sub')}</p>
+      <div class="upd-kv">
+        ${row(t('upd.current'), `<span class="mono">${esc(u.current)}</span>`)}
+        ${row(t('upd.latest'), u.latest ? `<span class="mono">${esc(u.latest)}</span>${u.url ? ` · <a class="link" href="${esc(u.url)}" target="_blank" rel="noopener">${t('upd.onGitHub')}</a>` : ''}` : '–')}
+        ${row(t('upd.checked'), u.checkedAt ? ago(u.checkedAt) : t('time.never'))}
+        ${u.minVersion ? row(t('upd.min'), `<span class="mono">${esc(u.minVersion)}</span>`) : ''}
+      </div>
+      ${u.error ? `<div class="alert" style="margin-top:14px">${t('upd.error', esc(u.error))}</div>` : ''}
+      ${u.dev ? `<div class="info" style="margin-top:16px">${t('upd.devBuild')}</div>` : ''}
+      ${u.envDisabled ? `<div class="info" style="margin-top:16px">${t('upd.envOff', code('WICKET_UPDATE_CHECK=off'))}</div>`
+        : `<div class="toggle-line"><div class="grow"><div class="strong">${t('upd.auto')}</div><div class="small muted">${t('upd.autoSub')}</div></div>
+          <button type="button" class="switch ${u.check ? 'on' : ''}" data-upd-auto role="switch" aria-checked="${u.check}"></button></div>`}
+      <div class="toggle-line" style="align-items:flex-start"><div class="grow">
+        <div class="strong">${t('upd.method')} <span class="badge ${watch ? 'ok' : ''}" style="margin-left:6px"><i></i>${watch ? 'Watchtower' : t('upd.manual')}</span></div>
+        <div class="small muted">${watch ? t('upd.methodWatchtower') : t('upd.methodManual', code('WICKET_UPDATE_URL'), code('WICKET_UPDATE_TOKEN'))}</div></div></div>
+      ${!watch ? `<div style="margin-top:16px">${manualBox()}</div>` : ''}
+    </div>
+    <div class="scard-foot">${u.envDisabled ? '' : `<button type="button" class="btn sm" data-upd-check>${t('upd.checkNow')}</button>`}
+      ${u.available && u.canApply ? `<button type="button" class="btn-light sm right" data-upd-open>${t('upd.now')}</button>` : ''}</div></div>`;
+  }
+
+  function wireUpdates(u) {
+    $('#updates')?.addEventListener('click', async (e) => {
+      const check = e.target.closest('[data-upd-check]');
+      try {
+        if (check) {
+          check.disabled = true;
+          const r = await api('POST', '/api/update/check', {});
+          markUpdate(r);
+          toast(r.error ? t('upd.error', r.error) : r.available ? t('upd.popTitle', r.latest) : t('upd.stUpToDate'), r.error ? 'err' : '');
+          refresh();
+        } else if (e.target.closest('[data-upd-open]')) {
+          updateDialog(u, u.locked);
+        } else if (e.target.closest('[data-upd-auto]')) {
+          await api('PUT', '/api/update/config', { check: !u.check });
+          toast(t('common.saved'));
+          refresh();
+        }
+      } catch (ex) { toast(ex.message, 'err'); if (check) check.disabled = false; }
+    });
+  }
+
+  async function checkUpdateOnLoad() {
+    try {
+      const u = await api('GET', '/api/update');
+      markUpdate(u);
+      if (u.locked) updateDialog(u, true);
+      else if (u.available && local.get(DISMISS_KEY) !== u.latest && !$('#modal').innerHTML) updateDialog(u, false);
+    } catch { /* the update status is not essential */ }
+  }
+
+  async function updateLocked() {
+    if (forced) return;
+    try { updateDialog(await api('GET', '/api/update'), true); } catch { /* ignore */ }
+  }
+
+  window.WX = { siteMount, siteCollect, userMount, userCollect, userDetail, updateLocked };
+  const waitForInit = setInterval(() => { if (state.me) { clearInterval(waitForInit); checkUpdateOnLoad(); } }, 200);
 
   // admin.js renders the first page as soon as /api/me answers; if that happened before this file ran,
   // render again so the extended routes apply

@@ -20,6 +20,7 @@ var notifyEvents = []string{
 	"ip_locked",        // brute-force protection locked an IP address
 	"admin_signin",     // an admin signed in
 	"settings_changed", // sites, users or settings were changed
+	"update_available", // a newer Wicket release was published
 }
 
 type NotifyChannel struct {

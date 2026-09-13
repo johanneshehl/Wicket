@@ -69,6 +69,8 @@ func (a *App) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	gauge("wicket_sites", "Number of protected sites.", len(sites))
 	gauge("wicket_active_sessions", "Number of active sessions.", sessions)
 	gauge("wicket_locked_ips", "IP addresses currently locked by brute-force protection.", a.limiter.LockedCount())
+	available, _ := a.updateStatus(a.updateState())
+	gauge("wicket_update_available", "1 if a newer Wicket release is available.", map[bool]int{true: 1}[available])
 
 	metricCounters.mu.Lock()
 	keys := make([]string, 0, len(metricCounters.v))

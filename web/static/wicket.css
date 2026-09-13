@@ -54,6 +54,16 @@ textarea.input { height: auto; min-height: 60px; padding: 8px 10px; resize: vert
 .set-none { padding: 36px 20px; border: 1px dashed var(--line2); border-radius: 10px; text-align: center; color: var(--muted); }
 mark.hl { background: rgba(245, 166, 35, .28); color: inherit; border-radius: 2px; padding: 0 1px; }
 
+/* updates */
+.avatar { position: relative; }
+.avatar.has-update::after { content: ''; position: absolute; top: -1px; right: -1px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); }
+.menu a.upd-menu { color: var(--warn); }
+.upd-notes { max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.6 var(--mono); color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.upd-kv { margin-top: 16px; }
+.upd-progress { display: flex; gap: 14px; align-items: flex-start; }
+.spinner { width: 18px; height: 18px; margin-top: 2px; border: 2px solid var(--line3); border-top-color: var(--text); border-radius: 50%; animation: spin .8s linear infinite; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ------------------------------------------------------------ auth pages */
 .auth { min-height: 100vh; display: flex; flex-direction: column; }
 .dots { background-color: #000; background-image: radial-gradient(#1c1c1c 1px, transparent 1px); background-size: 24px 24px; }

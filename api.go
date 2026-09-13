@@ -126,6 +126,11 @@ func (a *App) adminAPI() http.Handler {
 			a.errKey(w, r, http.StatusForbidden, "err.readOnly")
 			return
 		}
+		// a required update locks the admin interface; sign-ins and forward_auth are not affected
+		if a.updateLocked() && r.URL.Path != "/api/me" && !strings.HasPrefix(r.URL.Path, "/api/update") {
+			writeJSON(w, http.StatusLocked, map[string]string{"error": tr(a.langFor(r), "err.updateRequired", a.updateState().MinVersion), "code": "update_required"})
+			return
+		}
 		if now()-sess.LastSeen > 60 {
 			_ = a.store.TouchSession(sess.ID)
 			_ = a.store.TouchUser(user.ID)
@@ -142,7 +147,7 @@ var kindGroups = map[string][]string{
 	"fail": {"login_fail_password", "login_fail_user", "mfa_fail", "denied", "blocked"},
 	"lock": {"locked"},
 	"admin": {"user_created", "user_updated", "user_deleted", "password_set", "mfa_reset", "sessions_revoked", "site_created", "site_updated", "site_deleted", "settings_changed",
-		"group_created", "group_updated", "group_deleted", "oidc_client_created", "oidc_client_updated", "oidc_client_deleted", "invite_sent"},
+		"group_created", "group_updated", "group_deleted", "oidc_client_created", "oidc_client_updated", "oidc_client_deleted", "invite_sent", "update_started"},
 }
 
 var failKinds = []string{"login_fail_password", "login_fail_user", "mfa_fail"}

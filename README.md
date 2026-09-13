@@ -28,6 +28,7 @@ everything in one SQLite file.
 - [Traefik and nginx](#traefik-and-nginx)
 - [Docker containers as target](#docker-containers-as-target)
 - [Metrics](#metrics)
+- [Updates](#updates)
 - [Admin interface](#admin-interface)
 - [Configuration](#configuration)
 - [Security](#security)
@@ -57,6 +58,8 @@ everything in one SQLite file.
 - **Own branding** with your name, logo, accent colour and footer on the login pages.
 - **Docker containers as target.** Pick a running container when you add a site.
 - **Prometheus metrics** for sign-ins, checks and locks.
+- **Updates from the admin interface.** Wicket tells you about new releases and installs them through Watchtower.
+  A release can be marked as required, which locks older versions until they are updated.
 - **Brute-force protection.** An IP address is locked for a configurable time after repeated failed attempts.
 - **Audit log** of every sign-in, failure, lock and admin change, with filters and CSV export.
 - **Session management.** See active sessions per user and end them individually or all at once.
@@ -407,6 +410,80 @@ scrape_configs:
 It reports sign-ins, `forward_auth` checks and second-factor results by outcome, plus the number of users, sites,
 active sessions and locked addresses.
 
+## Updates
+
+Wicket checks twice a day whether a newer release exists. It only downloads the public list of releases from the
+GitHub API; nothing about your installation is sent apart from the Wicket version in the `User-Agent` header.
+
+- **New version.** Admins get a popup with the release notes. **Later** hides it until the next release; a dot on
+  the avatar and an entry in the account menu remain. The notification channels can report new versions as well.
+- **Required update.** A release can be marked as required. Older versions then lock the admin interface: every page
+  shows the update dialog and nothing else can be changed. Sign-ins, `forward_auth` and OIDC keep working, so your
+  sites stay reachable. The lock disappears as soon as the new version runs.
+- **Settings > Updates** shows the installed and the latest version and the last check, and has **Check now**. The
+  automatic check can be turned off there, but not while a required update is pending.
+- `WICKET_UPDATE_CHECK=off` turns off the check and the lock completely. Development builds are never compared.
+
+### Installing updates
+
+With **Update now**, Wicket saves a copy of its database in the data directory (`wicket-before-<version>-<time>.db`,
+the newest three are kept) and asks a Watchtower instance to install the new image. Wicket restarts, sign-ins pause
+for a few seconds, and the admin interface reloads once the new version runs.
+
+Add a Watchtower instance that is responsible for Wicket only, and give Wicket its address and token:
+
+```yaml
+services:
+  wicket:
+    image: ghcr.io/johanneshehl/wicket:latest
+    # ... as above, plus:
+    environment:
+      WICKET_UPDATE_URL: http://127.0.0.1:8089/v1/update
+      WICKET_UPDATE_TOKEN: <long random value>
+    labels:
+      - com.centurylinklabs.watchtower.scope=wicket
+
+  wicket-updater:
+    image: containrrr/watchtower
+    container_name: wicket-updater
+    restart: unless-stopped
+    command: --http-api-update --scope wicket --cleanup
+    environment:
+      WATCHTOWER_HTTP_API_TOKEN: <the same value>
+    ports:
+      - 127.0.0.1:8089:8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - com.centurylinklabs.watchtower.scope=wicket
+```
+
+The updater only reacts to requests with the token and only touches containers with the scope `wicket`. If another
+Watchtower already runs on the server, give it `WATCHTOWER_SCOPE=none` so it leaves Wicket alone.
+
+Without Watchtower, the dialog shows the commands to run on the server instead:
+
+```
+docker compose pull
+docker compose up -d
+```
+
+To go back to an earlier version, set the image to that version, for example `ghcr.io/johanneshehl/wicket:1.3.0`, and
+if needed copy the backup over `wicket.db` while the container is stopped.
+
+### Marking a release as required
+
+Write `[required]` in the message of the release tag, or `[min-version 1.4.0]` to require at least that version from
+everyone below it:
+
+```
+git tag -a v1.5.0 -m "Wicket 1.5.0: security fix [required]"
+git push origin v1.5.0
+```
+
+The release workflow turns this into a marker in the release notes (`<!-- wicket:required -->` or
+`<!-- wicket:min-version 1.4.0 -->`), which can also be added to or removed from the notes on GitHub afterwards.
+
 ## Admin interface
 
 The interface and all login pages are available in English, German and Spanish. Set the language in
@@ -463,6 +540,7 @@ Every area of the settings has its own tab:
 | Notifications | Email, webhook and ntfy channels |
 | Apps (OIDC) | Applications that use Wicket for their login |
 | Integrations | Traefik and nginx snippets, metrics and Docker status |
+| Updates | Installed and latest version, update check and installation |
 | Caddy | Status of the Caddy connection |
 | My account | Password, 2FA and passkeys |
 
@@ -492,6 +570,11 @@ later in the admin interface; those values are stored in the database and take p
 | `WICKET_TRUSTED_PROXIES` | | Comma-separated addresses or networks of reverse proxies whose `X-Forwarded-For` is trusted. Proxies on localhost are always trusted. |
 | `WICKET_DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker API for the container list, also `tcp://host:2375`. Empty turns the feature off. |
 | `WICKET_METRICS_TOKEN` | | Bearer token for `/metrics`. Without it, `/metrics` only answers on Wicket's own address, not through the login or admin host. |
+| `WICKET_UPDATE_CHECK` | `on` | `off` turns off the update check and the lock for required updates. |
+| `WICKET_UPDATE_URL` | | Watchtower HTTP API that installs updates, for example `http://127.0.0.1:8089/v1/update`. |
+| `WICKET_UPDATE_TOKEN` | | Token for `WICKET_UPDATE_URL`. |
+| `WICKET_UPDATE_REPO` | `johanneshehl/Wicket` | GitHub repository whose releases are checked, for forks. |
+| `WICKET_UPDATE_API` | `https://api.github.com` | GitHub API address, for GitHub Enterprise or tests. |
 
 Defaults in the admin interface:
 
@@ -520,7 +603,10 @@ Defaults in the admin interface:
 - OIDC authorization codes work once and require PKCE for apps without a secret; client secrets are stored hashed.
 - Uploaded SVG logos with scripts or event handlers are refused, and the logo is served with a sandboxing policy.
 - The first admin can only be created with the setup code from the container log.
-- Responses carry a strict Content Security Policy. Wicket makes no requests to third parties; fonts are bundled.
+- Responses carry a strict Content Security Policy. Apart from the update check against the GitHub API, which can
+  be turned off, Wicket makes no requests to third parties; fonts are bundled.
+- Updates are only installed on request of an admin, through a Watchtower instance that needs a token. A database
+  backup is written first.
 - The image is based on distroless and runs as a non-root user.
 
 ## Backup and updates

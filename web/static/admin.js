@@ -43,6 +43,7 @@ async function api(method, url, body) {
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) { location.href = '/login'; throw new Error(t('err.notSignedIn')); }
   if (res.status === 403 && data.error === '2fa_setup_required') { location.href = '/setup-2fa'; throw new Error(t('err.2faRequired')); }
+  if (res.status === 423 && data.code === 'update_required') window.WX?.updateLocked();
   if (!res.ok) throw new Error(data.error || t('err.http', res.status));
   return data;
 }
