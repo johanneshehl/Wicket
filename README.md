@@ -34,6 +34,7 @@ everything in one SQLite file.
 - [Security](#security)
 - [Backup and updates](#backup-and-updates)
 - [Building from source](#building-from-source)
+- [Changelog](#changelog)
 - [Roadmap](#roadmap)
 
 ## Features
@@ -65,7 +66,9 @@ everything in one SQLite file.
 - **Session management.** See active sessions per user and end them individually or all at once.
 - **Automatic Caddy configuration.** Add a domain in the admin interface and Wicket writes the Caddy site block
   and reloads Caddy. The site is protected immediately.
-- **Small and self-contained.** One static binary, no external services, no requests to third parties.
+- **Admin interface in tabs** with a search across all settings that understands English, German and Spanish terms.
+- **Small and self-contained.** One static binary, no external services. The only outgoing request is the update
+  check against GitHub, which can be turned off.
 
 ## How it works
 
@@ -88,7 +91,8 @@ Browser ──> Caddy ──(forward_auth)──> Wicket  /verify
 ## Requirements
 
 - A Linux server with Docker.
-- [Caddy](https://caddyserver.com) v2 as reverse proxy, running on the same host.
+- [Caddy](https://caddyserver.com) v2 as reverse proxy, running on the same host. Traefik and nginx work as well
+  (see [Traefik and nginx](#traefik-and-nginx)); the automatic site configuration is only available with Caddy.
 - A domain with DNS records for two hosts, for example `login.example.com` (login page) and
   `wicket.example.com` (admin interface). Both point to your server.
 
@@ -157,6 +161,10 @@ docker compose up -d
 
 Host networking lets Caddy reach Wicket on `127.0.0.1:9091` and Wicket reach the Caddy admin API on
 `127.0.0.1:2019`. Wicket only listens on localhost; all public traffic goes through Caddy.
+
+Optional additions to this file: the Docker socket for picking containers as target
+([Docker containers as target](#docker-containers-as-target)) and an updater for updates from the admin interface
+([Installing updates](#installing-updates)).
 
 ### 4. First-run setup
 
@@ -300,7 +308,8 @@ Under **Settings > Notifications** you add channels:
 | Webhook | A URL that receives a JSON message, for example from Slack, Discord or Teams. An optional token is sent as `Authorization: Bearer`. |
 | ntfy | A topic URL such as `https://ntfy.sh/my-wicket`, with an optional access token. |
 
-Each channel chooses its events: sign-in from a new device, IP address locked, admin signed in, settings changed.
+Each channel chooses its events: sign-in from a new device, IP address locked, admin signed in, settings changed,
+new Wicket version.
 **Send test** checks a saved channel.
 
 ## Login for other applications (OpenID Connect)
@@ -408,7 +417,8 @@ scrape_configs:
 ```
 
 It reports sign-ins, `forward_auth` checks and second-factor results by outcome, plus the number of users, sites,
-active sessions and locked addresses.
+active sessions and locked addresses, the running version (`wicket_build_info`) and whether an update is available
+(`wicket_update_available`).
 
 ## Updates
 
@@ -490,6 +500,9 @@ The interface and all login pages are available in English, German and Spanish. 
 **Settings > General**. With **Automatic**, every visitor gets their browser language, and English if it is not
 supported.
 
+The tabs at the top are Overview, Sites, Users, Groups, Templates, Log and Settings. When a new Wicket version is
+available, a dot appears on the avatar and the account menu has an entry to update.
+
 ### Login templates
 
 The **Templates** tab sets the look of the login page in front of your protected sites. The two-factor step and the
@@ -519,6 +532,11 @@ Users with role and 2FA status. The detail panel shows groups, passkeys and acti
 password or 2FA, send an invitation or reset link and sign the user out everywhere.
 
 ![Users](docs/screenshots/users.png)
+
+### Groups
+
+Groups with description and members. Click a group to rename it, change its members or delete it. Sites and OIDC
+apps limited to selected users can admit whole groups.
 
 ### Audit log
 
@@ -620,7 +638,11 @@ cp -a /opt/wicket/data /backup/wicket-$(date +%F)
 docker compose start wicket
 ```
 
-To update to the latest version:
+Before every update started from the admin interface, Wicket also writes a copy of the database to the data
+directory itself (`wicket-before-<version>-<time>.db`, the newest three are kept).
+
+To update, use **Update now** in the admin interface (see [Updates](#updates)), or run in the directory with
+`docker-compose.yml`:
 
 ```
 docker compose pull
@@ -642,19 +664,85 @@ go build -o wicket .
 WICKET_DATA=./data ./wicket
 ```
 
+A build without version reports itself as `dev` and is never compared with releases. To build a specific version:
+
+```
+go build -ldflags "-X main.version=1.4.0" -o wicket .
+```
+
 The end-to-end test starts against a fresh instance and covers setup, 2FA, the admin API, `forward_auth`,
 access rules and brute-force protection:
 
 ```
-WICKET_LISTEN=127.0.0.1:9092 WICKET_AUTH_ADDR=127.0.0.1:9092 WICKET_DATA=/tmp/wicket-test ./wicket
+WICKET_LISTEN=127.0.0.1:9092 WICKET_AUTH_ADDR=127.0.0.1:9092 WICKET_DATA=/tmp/wicket-test \
+  WICKET_UPDATE_CHECK=off ./wicket
 python3 scripts/e2e_test.py 9092 <setup-code>
 ```
 
 A second suite, `scripts/e2e_features.py`, covers groups, IP rules, session limits, roles, OIDC, mail with a local
-test SMTP server, passkey ceremonies and branding. Run it the same way against another fresh instance.
+test SMTP server, passkey ceremonies, branding and updates. It starts a fake GitHub API and a fake Watchtower on
+port 9099, so the instance needs a release version and these variables:
 
-Releases are built by GitHub Actions: pushing a tag like `v1.2.0` publishes the image for `linux/amd64` and
-`linux/arm64` to `ghcr.io/johanneshehl/wicket` and creates a GitHub release.
+```
+go build -ldflags "-X main.version=1.3.0" -o wicket .
+WICKET_LISTEN=127.0.0.1:9094 WICKET_AUTH_ADDR=127.0.0.1:9094 WICKET_DATA=/tmp/wicket-test2 WICKET_DOCKER_HOST= \
+  WICKET_UPDATE_API=http://127.0.0.1:9099 WICKET_UPDATE_URL=http://127.0.0.1:9099/v1/update \
+  WICKET_UPDATE_TOKEN=e2e-token ./wicket
+python3 scripts/e2e_features.py 9094 <setup-code>
+```
+
+Releases are built by GitHub Actions: pushing a tag like `v1.4.0` publishes the image for `linux/amd64` and
+`linux/arm64` to `ghcr.io/johanneshehl/wicket` (tags `1.4.0`, `1.4`, `1` and `latest`) and creates a GitHub
+release. `[required]` or `[min-version x.y.z]` in the tag message marks the release as a required update (see
+[Marking a release as required](#marking-a-release-as-required)).
+
+## Changelog
+
+### 1.4.0
+
+- Settings: every area has its own tab.
+- Search above the settings tabs across all tabs, with hits per tab and highlighted words. It finds English, German
+  and Spanish terms in every interface language.
+- Version updater: update check against the GitHub releases, popup with release notes, **Update now** through
+  Watchtower with a database backup first, and an **Updates** tab in the settings.
+- Required updates: a release marked as required locks the admin interface of older versions until they are
+  updated. Sign-ins and protected sites keep working.
+- New notification event "new Wicket version" and metric `wicket_update_available`.
+- New variables `WICKET_UPDATE_CHECK`, `WICKET_UPDATE_URL`, `WICKET_UPDATE_TOKEN`, `WICKET_UPDATE_REPO` and
+  `WICKET_UPDATE_API`.
+- Fix: on a fast page load the admin interface could appear without the extended tabs.
+
+### 1.3.0
+
+- Passkeys for sign-in without password and code.
+- Groups, and the read-only role Auditor.
+- Invitations and password reset by email through your own SMTP server.
+- Notifications by email, webhook or ntfy.
+- Wicket as OpenID Connect provider for other applications.
+- Traefik and nginx support with ready-made snippets.
+- Own branding for the login pages: name, logo, accent colour and footer.
+- Per site: IP rules to always allow or block networks, and a session length after which users sign in again.
+- Prometheus metrics at `/metrics`.
+- Running Docker containers can be picked as target.
+- New headers `Remote-Email` and `Remote-Groups`; new variables `WICKET_TRUSTED_PROXIES`, `WICKET_DOCKER_HOST` and
+  `WICKET_METRICS_TOKEN`.
+
+### 1.2.0
+
+- Six login templates for the protected sites.
+- English, German and Spanish, or automatically by browser language.
+- Sign in with Microsoft, GitHub and Google.
+
+### 1.1.0
+
+- Existing site blocks in the Caddyfile are protected automatically: Wicket adds `import wicket` and comments out
+  `basic_auth`, and reverts both when the site is deleted.
+- Wicket keeps its import line at the top of the Caddyfile.
+
+### 1.0.0
+
+- First release: login gate for Caddy with single sign-on, two-factor authentication, brute-force protection,
+  audit log, session management and automatic Caddy configuration.
 
 ## Roadmap
 
