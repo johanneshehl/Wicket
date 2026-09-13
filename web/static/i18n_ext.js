@@ -11,7 +11,9 @@
     'sec.oidc': ['Apps (OIDC)', 'Apps (OIDC)', 'Apps (OIDC)'],
     'sec.integrations': ['Integrations', 'Integrationen', 'Integraciones'],
     'n.groups': [['{0} group', '{0} groups'], ['{0} Gruppe', '{0} Gruppen'], ['{0} grupo', '{0} grupos']],
-    'wx.configured': ['configured', 'eingerichtet', 'configurado'],
+    'set.search': ['Search all settings', 'Alle Einstellungen durchsuchen', 'Buscar en todos los ajustes'],
+    'set.searchNone': ['Nothing found for “{0}”.', 'Nichts gefunden für „{0}“.', 'No se ha encontrado nada para «{0}».'],
+    'wx.configured':['configured', 'eingerichtet', 'configurado'],
     'wx.notConfigured': ['not configured', 'nicht eingerichtet', 'sin configurar'],
 
     // sites

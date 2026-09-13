@@ -442,10 +442,150 @@
     });
   }
 
-  // ---------------------------------------------------------------- settings route
+  // ---------------------------------------------------------------- settings: one tab per section, search across all tabs
 
   const EXT_SECTIONS = ['mail', 'notify', 'oidc', 'integrations'];
   SECTIONS.splice(SECTIONS.indexOf('caddy'), 0, ...EXT_SECTIONS);
+
+  // card id -> [tab, text keys]. The wording of these keys in every language makes the card findable,
+  // so "Passwort" finds the account tab while the interface is in English.
+  const CARDS = {
+    general: ['general', ['set.language', 'lang.']],
+    domain: ['general', ['set.mainDomain', 'set.loginHost', 'set.adminHost', 'set.domainFoot']],
+    sessions: ['sessions', ['set.sessions', 'set.normal', 'set.hours', 'set.remember', 'set.days', 'set.newOnly']],
+    security: ['security', ['set.bf', 'set.attemptsIn', 'set.minLockFor', 'set.enforce', 'set.retention']],
+    login: ['login', ['oauth.title', 'oauth.sub', 'oauth.note']],
+    mail: ['mail', ['mail.']],
+    notify: ['notify', ['ntf.']],
+    oidc: ['oidc', ['oidc.']],
+    integrations: ['integrations', ['int.']],
+    caddy: ['caddy', ['set.caddy', 'set.adminApi', 'set.snippetDir', 'chk.', 'set.addLine', 'set.ownBlocks']],
+    account: ['account', ['set.signedInAs', 'set.password', 'set.pwSub', 'set.2fa', 'set.codesLeft', 'set.newCodes', 'set.disable', 'set.setup', 'pk.', 'wx.passkeys']],
+  };
+
+  const norm = (s) => String(s).toLowerCase().replace(/ß/g, 'ss').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const plain = (v) => (Array.isArray(v) ? v.flat().join(' ') : String(v)).replace(/<[^>]*>/g, ' ').replace(/\{\d\}/g, ' ');
+
+  function vocab(prefixes) {
+    const out = [];
+    for (const dict of Object.values(window.WICKET_I18N)) {
+      for (const [k, v] of Object.entries(dict)) if (prefixes.some((p) => k.startsWith(p))) out.push(plain(v));
+    }
+    return out.join(' ');
+  }
+
+  function unmark(root) {
+    $$('mark.hl', root).forEach((m) => { const p = m.parentNode; m.replaceWith(m.textContent); p.normalize(); });
+  }
+
+  // highlights the typed words in visible text (not inside form controls)
+  function mark(root, words) {
+    const ws = words.filter((w) => w.length > 1).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (!ws.length) return;
+    const re = new RegExp(ws.join('|'), 'gi');
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentElement.closest('textarea, select, option, mark') || !n.nodeValue.trim() ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((n) => {
+      const text = n.nodeValue;
+      re.lastIndex = 0;
+      if (!re.test(text)) return;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let i = 0;
+      text.replace(re, (m, at) => {
+        frag.append(text.slice(i, at));
+        const mk = document.createElement('mark');
+        mk.className = 'hl';
+        mk.textContent = m;
+        frag.append(mk);
+        i = at + m.length;
+        return m;
+      });
+      frag.append(text.slice(i));
+      n.replaceWith(frag);
+    });
+  }
+
+  // the search survives a re-render after saving, but not a change of page or tab
+  let settingsQuery = '';
+  window.addEventListener('hashchange', () => { settingsQuery = ''; });
+  document.addEventListener('keydown', (e) => {
+    const s = $('[data-set-search]');
+    if (!s || e.key !== '/' || e.ctrlKey || e.metaKey || e.target.closest('input, textarea, select') || $('#modal').innerHTML) return;
+    e.preventDefault();
+    s.focus();
+  });
+
+  function settingsTabs(sub) {
+    const page = $('.page.settings', view);
+    if (!page) return;
+    const active = SECTIONS.includes(sub) ? sub : 'general';
+    const box = $('.cards', page);
+    const nav = $('.side-nav', page);
+    const cards = $$(':scope > .scard', box).map((el) => {
+      const [tab, keys] = el.dataset.oauth ? ['login', ['oauth.']] : (CARDS[el.id] || [active, []]);
+      const text = [el.textContent, ...$$('[placeholder]', el).map((i) => i.placeholder), vocab([...keys, 'sec.' + tab])].join(' ');
+      return { el, tab, words: norm(text) };
+    });
+    $('h1', nav).insertAdjacentHTML('afterend', `<label class="set-search">${I.search}
+      <input type="search" data-set-search placeholder="${t('set.search')}" aria-label="${t('set.search')}" autocomplete="off" spellcheck="false"><kbd>/</kbd></label>`);
+    box.insertAdjacentHTML('afterbegin', '<div class="set-none" data-set-none hidden></div>');
+    const input = $('[data-set-search]', nav);
+    const none = $('[data-set-none]', box);
+    const links = $$('[data-sec]', nav);
+
+    const show = () => {
+      settingsQuery = input.value;
+      const raw = input.value.trim();
+      const words = norm(raw).split(/\s+/).filter(Boolean);
+      $$('.set-group', box).forEach((g) => g.remove());
+      cards.forEach((c) => unmark(c.el));
+      if (!words.length) {
+        cards.forEach((c) => { c.el.hidden = c.tab !== active; });
+        links.forEach((a) => { a.classList.toggle('on', a.dataset.sec === active); a.classList.remove('no-hit'); delete a.dataset.count; });
+        none.hidden = true;
+        return;
+      }
+      const per = {};
+      let last = '';
+      cards.forEach((c) => {
+        const hit = words.every((w) => c.words.includes(w));
+        c.el.hidden = !hit;
+        if (!hit) return;
+        per[c.tab] = (per[c.tab] || 0) + 1;
+        if (c.tab !== last) { c.el.insertAdjacentHTML('beforebegin', `<div class="set-group">${t('sec.' + c.tab)}</div>`); last = c.tab; }
+        mark(c.el, raw.split(/\s+/));
+      });
+      links.forEach((a) => {
+        const n = per[a.dataset.sec] || 0;
+        a.classList.remove('on');
+        a.classList.toggle('no-hit', !n);
+        if (n) a.dataset.count = n; else delete a.dataset.count;
+      });
+      none.hidden = Object.keys(per).length > 0;
+      none.textContent = t('set.searchNone', raw);
+    };
+
+    input.addEventListener('input', show);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); input.value = ''; show(); input.blur(); }
+      if (e.key === 'Enter') { e.preventDefault(); cards.find((c) => !c.el.hidden)?.el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    });
+    // picking a tab ends the search
+    nav.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-sec]');
+      if (!a || !input.value) return;
+      input.value = '';
+      if (a.getAttribute('href') === location.hash) { e.preventDefault(); show(); }
+    });
+    input.value = settingsQuery;
+    show();
+    if (settingsQuery) input.focus();
+    else window.scrollTo(0, 0);
+  }
 
   routes.settings = async (sub) => {
     await renderSettings(sub);
@@ -464,7 +604,7 @@
       if (ed) oidcDialog(oidc.clients.find((c) => c.id === ed.dataset.oidcEdit), ud.users, groups, oidc.discovery);
     });
     accountPasskeys(pk.passkeys || []);
-    if (EXT_SECTIONS.includes(sub)) document.getElementById(sub)?.scrollIntoView({ behavior: 'smooth' });
+    settingsTabs(sub);
   };
 
   // ---------------------------------------------------------------- templates route: branding
@@ -534,4 +674,8 @@
   routes.groups = renderGroups;
 
   window.WX = { siteMount, siteCollect, userMount, userCollect, userDetail };
+
+  // admin.js renders the first page as soon as /api/me answers; if that happened before this file ran,
+  // render again so the extended routes apply
+  if (state.me) route();
 })();

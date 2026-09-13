@@ -451,9 +451,25 @@ Every sign-in, failure, lock and admin change, filterable by type, time range an
 
 ### Settings
 
-Language, main domain and hosts, session length, brute-force limits, 2FA enforcement for admins, log retention,
-sign-in methods, mail server, notifications, OIDC apps, integrations, the status of the Caddy connection and your
-own account with password, 2FA and passkeys.
+Every area of the settings has its own tab:
+
+| Tab | Contents |
+|---|---|
+| General | Language, main domain, login and admin host |
+| Sessions | Session length and "Stay signed in" |
+| Security | Brute-force limits, 2FA enforcement for admins, log retention |
+| Sign-in methods | Microsoft, GitHub and Google |
+| Mail server | SMTP server for invitations, password reset and notifications |
+| Notifications | Email, webhook and ntfy channels |
+| Apps (OIDC) | Applications that use Wicket for their login |
+| Integrations | Traefik and nginx snippets, metrics and Docker status |
+| Caddy | Status of the Caddy connection |
+| My account | Password, 2FA and passkeys |
+
+The search above the tabs looks through all of them at once. It shows every matching card, grouped by tab, with
+the number of hits next to each tab and the search words highlighted. It understands the English, German and Spanish
+terms regardless of the interface language, so "Passwort" or "contraseña" also find the password settings. Press
+`/` to jump to the search and `Esc` to clear it.
 
 ![Settings](docs/screenshots/settings.png)
 
